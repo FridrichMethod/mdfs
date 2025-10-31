@@ -11,4 +11,4 @@ set -euo pipefail
 pip install uv
 
 # Install required packages with correct versions
-uv pip install -e .[dev]
+uv pip install -e .[dev,test]

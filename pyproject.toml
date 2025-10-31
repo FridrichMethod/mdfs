@@ -29,7 +29,8 @@ dependencies = [
 version = { attr = "mdfs.__version__" }
 
 [project.optional-dependencies]
-dev = ["mypy", "pre-commit", "pytest", "ruff"]
+dev = ["mypy", "pre-commit", "ruff"]
+test = ["pytest", "pytest-cov", "pytest-env", "pytest-xdist"]
 
 [tool.ruff]
 target-version = "py312"
