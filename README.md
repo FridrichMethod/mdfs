@@ -35,3 +35,8 @@ uv pip install jax[cuda12]
 To validate your installation is successful, you may simply run `pytest`.
 
 ***Let's start now!***
+
+## See Also
+
+- [jax-md](https://github.com/google/jax-md): Differentiable, Hardware Accelerated, Molecular Dynamics
+- [OpenMM](https://github.com/openmm/openmm): OpenMM is a toolkit for molecular simulation using high performance GPU code.
