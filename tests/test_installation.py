@@ -33,8 +33,19 @@ def test_import_mdfs() -> None:
     assert mdfs.__email__ == "zhaoyangli@stanford.edu"
 
 
+def test_import_openmm() -> None:
+    """Test that OpenMM can be imported and basic classes accessed."""
+    import openmm
+    import openmm.unit as unit
+
+    # Check basic class usage
+    length = 1.0 * unit.nanometer  # type: ignore
+    assert length.value_in_unit(unit.nanometer) == 1.0  # type: ignore
+
+
 def test_import_jax() -> None:
     """Test that JAX can be imported and basic operations work."""
+    import jax
     import jax.numpy as jnp
 
     # Test basic JAX operations
