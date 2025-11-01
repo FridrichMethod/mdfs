@@ -19,16 +19,14 @@ conda activate mdfs
 pip install uv
 
 # Install required packages with correct versions
-uv pip install -e .[dev,test]
+uv pip install -e .[dev]
 ```
 
-If you are on a machine with a NVIDIA GPU, a CUDA-enabled version of JAX (with CUDA 12 support) can be installed with
+For systems equipped with NVIDIA GPUs, CUDA-enabled versions of JAX and OpenMM (compatible with CUDA 12) can be installed using:
 
 ```bash
-uv pip install jax[cuda12]
+uv pip install -e .[dev,cuda12]
 ```
-
-(see [JAX official website](https://docs.jax.dev/en/latest/installation.html) for more details).
 
 ---
 
@@ -38,5 +36,6 @@ To validate your installation is successful, you may simply run `pytest`.
 
 ## See Also
 
-- [jax-md](https://github.com/google/jax-md): Differentiable, Hardware Accelerated, Molecular Dynamics
+- [JAX, M.D.](https://github.com/google/jax-md): Differentiable, Hardware Accelerated, Molecular Dynamics
 - [OpenMM](https://github.com/openmm/openmm): OpenMM is a toolkit for molecular simulation using high performance GPU code.
+- [MDTraj](https://github.com/mdtraj/mdtraj): An open library for the analysis of molecular dynamics trajectories
