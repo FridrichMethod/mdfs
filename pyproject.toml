@@ -150,6 +150,9 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"mdfs.ffxml" = ["**/*.xml", "README.md"]
+
 [tool.pytest.ini_options]
 addopts = "-v -s --tb=short --strict-markers --color=yes"
 testpaths = ["tests"]
