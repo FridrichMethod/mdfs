@@ -22,11 +22,13 @@ pip install uv
 uv pip install -e .[dev,test]
 ```
 
-If you are on a machine with a NVIDIA GPU, a CUDA-enabled version of jax (with CUDA 12 support) can be installed with
+If you are on a machine with a NVIDIA GPU, a CUDA-enabled version of JAX (with CUDA 12 support) can be installed with
 
 ```bash
 uv pip install jax[cuda12]
 ```
+
+(see [JAX official website](https://docs.jax.dev/en/latest/installation.html) for more details).
 
 ---
 
