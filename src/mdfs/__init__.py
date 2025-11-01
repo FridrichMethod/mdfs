@@ -1,4 +1,4 @@
-"""MD from Scratch"""
+"""MD from scratch"""
 
 __version__ = "0.1.0"
 __author__ = "Zhaoyang Li"

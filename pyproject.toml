@@ -8,7 +8,7 @@ dynamic = ["version"]
 authors = [{ name = "Zhaoyang Li", email = "zhaoyangli@stanford.edu" }]
 license = { file = "LICENSE" }
 readme = "README.md"
-description = "MD from Scratch"
+description = "MD from scratch"
 requires-python = ">=3.12"
 dependencies = [
   "jax>=0.7.0",
