@@ -5,7 +5,7 @@ MD from scratch
 > **Author:** [Zhaoyang Li](mailto:zhaoyangli@stanford.edu)  
 > **Published:** October 30, 2025
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3120/) [![CI Status](https://github.com/fridrichmethod/mdfs/workflows/CI/badge.svg)](https://github.com/zhaoyangli/mdfs/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3120/) [![CI Status](https://github.com/fridrichmethod/mdfs/workflows/CI/badge.svg)](https://github.com/fridrichmethod/mdfs/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Installation
 

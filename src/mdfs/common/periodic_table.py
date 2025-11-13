@@ -74,7 +74,7 @@ Rb: Final[Element] = Element(name="Rubidium", number=37, symbol="Rb", weight=85.
 Sr: Final[Element] = Element(name="Strontium", number=38, symbol="Sr", weight=87.62)
 Y: Final[Element] = Element(name="Yttrium", number=39, symbol="Y", weight=88.906)
 Zr: Final[Element] = Element(name="Zirconium", number=40, symbol="Zr", weight=91.224)
-Nb: Final[Element] = Element(name="Niobiu", number=41, symbol="Nb", weight=92.906)
+Nb: Final[Element] = Element(name="Niobium", number=41, symbol="Nb", weight=92.906)
 Mo: Final[Element] = Element(name="Molybdenum", number=42, symbol="Mo", weight=95.94)
 Tc: Final[Element] = Element(name="Technetium", number=43, symbol="Tc", weight=98)
 Ru: Final[Element] = Element(name="Ruthenium", number=44, symbol="Ru", weight=101.07)
@@ -177,11 +177,10 @@ PERIODIC_TABLE: Final[Sequence[Element]] = (
 # pylint: enable=bad-whitespace
 # fmt: on
 ATOMIC_SYMBOL: Mapping[int, str] = {e.number: e.symbol for e in PERIODIC_TABLE}
-ATOMIC_NUMBER = {e.symbol: e.number for e in PERIODIC_TABLE}
+ATOMIC_NUMBER: Mapping[str, int] = {e.symbol: e.number for e in PERIODIC_TABLE}
 # Add Deuterium as previous table contained it.
 ATOMIC_NUMBER["D"] = 1
 
-ATOMIC_NUMBER: Mapping[str, int] = ATOMIC_NUMBER
 ATOMIC_WEIGHT: np.ndarray = np.zeros(len(PERIODIC_TABLE), dtype=np.float64)
 
 for e in PERIODIC_TABLE:
