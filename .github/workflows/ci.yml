@@ -38,7 +38,7 @@ jobs:
 
       - name: Install package and dependencies
         run: |
-          uv pip install -e .[dev,test]
+          uv pip install -e .[dev]
 
       - name: Check style
         run: |
