@@ -99,52 +99,66 @@ def fmt(label: str, n_atoms: int, n_pairs: int, sps: float) -> str:
 
 def main() -> None:
     print(
-        f"device={jax.devices()[0].platform.upper()}  precision={'float64' if args.x64 else 'float32'}  dt={DT_PS * 1000} fs\n"
+        f"device={jax.devices()[0].platform.upper()}  "
+        f"precision={'float64' if args.x64 else 'float32'}  dt={DT_PS * 1000} fs\n"
     )
-    print(f"{'config':<16} {'atoms':>7} {'pairs':>12} {'steps/s':>10} {'ns/day':>9} {'ms/step':>9}")
-    print("-" * 70)
+    print(f"{'config':<22} {'atoms':>7} {'pairs':>12} {'steps/s':>10} {'ns/day':>9} {'ms/step':>9}")
+    print("-" * 76)
 
     base = mdfs.system_params_from_pdb(REPO_ROOT / "assets" / "poly_A.pdb")[0]
     for m in args.replicas:
         sp = replicate(base, m) if m > 1 else base
         n = sp.n_atoms
-        n_steps = max(200, args.steps // m)
-        bonded = mdfs.to_bonded_set(sp)
-        nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(n))
         n_pairs = n * (n - 1) // 2
+        bonded = mdfs.to_bonded_set(sp)
         R0 = jnp.asarray(sp.positions)
-        V0 = mdfs.maxwell_boltzmann_velocities(
-            jax.random.PRNGKey(0), jnp.asarray(sp.masses), 300.0, n
-        )
         mass = jnp.asarray(sp.masses)
+        V0 = mdfs.maxwell_boltzmann_velocities(jax.random.PRNGKey(0), mass, 300.0, n)
 
-        nve_state, nve_step = mdfs.simulate_nve(R0, V0, None, bonded, nb, dt=DT_PS, mass=mass)
-        print(fmt(f"NVE vacuum x{m}", n, n_pairs, throughput(nve_step, nve_state, n_steps)))
-
-        nvt_state, nvt_step = mdfs.simulate_langevin(
+        # Dense (N, N) path -- the default.
+        nb = mdfs.to_nonbonded_set(sp)
+        st, step = mdfs.simulate_nve(R0, V0, None, bonded, nb, dt=DT_PS, mass=mass)
+        print(fmt(f"NVE dense x{m}", n, n_pairs, throughput(step, st, max(200, args.steps // m))))
+        st, step = mdfs.simulate_langevin(
             R0, V0, None, bonded, nb, dt=DT_PS, mass=mass, gamma=10.0, temperature=300.0
         )
-        sps = throughput(nvt_step, nvt_state, n_steps, key=jax.random.PRNGKey(1))
-        print(fmt(f"NVT vacuum x{m}", n, n_pairs, sps))
+        sps = throughput(step, st, max(200, args.steps // m), key=jax.random.PRNGKey(1))
+        print(fmt(f"NVT dense x{m}", n, n_pairs, sps))
 
-    # Periodic (PBC + DSF + LJ cutoff) at the base size, to exercise that path.
+        # Pair-list path for contrast (only small sizes -- its O(N^2) scatter is slow).
+        if m <= 10:
+            nb_p = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(n))
+            st, step = mdfs.simulate_nve(R0, V0, None, bonded, nb_p, dt=DT_PS, mass=mass)
+            print(fmt(f"NVE pair-list x{m}", n, n_pairs, throughput(step, st, max(30, 400 // m))))
+
+    # Periodic (PBC + DSF + LJ cutoff), dense path.
     sp = base
     n = sp.n_atoms
-    extent = np.ptp(sp.positions, axis=0).max()
-    box = jnp.array([extent + 4.0] * 3)  # ensure r_cut <= min(box)/2
-    r_cut = float(extent + 4.0) / 2.0 - 0.1
-    nb_pbc = mdfs.to_nonbonded_set(
-        sp, mdfs.all_pairs(n), r_cut_lj=r_cut, dsf=DSFParams(alpha=2.0, r_cut=r_cut)
-    )
-    bonded = mdfs.to_bonded_set(sp)
-    R0 = jnp.asarray(sp.positions)
+    side = float(np.ptp(sp.positions, axis=0).max()) + 4.0
+    r_cut = side / 2.0 - 0.1
+    R0 = jnp.asarray(sp.positions - sp.positions.mean(axis=0) + side / 2.0)
     mass = jnp.asarray(sp.masses)
     V0 = mdfs.maxwell_boltzmann_velocities(jax.random.PRNGKey(0), mass, 300.0, n)
-    state, step = mdfs.simulate_langevin(
-        R0, V0, box, bonded, nb_pbc, dt=DT_PS, mass=mass, gamma=10.0, temperature=300.0
+    nb_pbc = mdfs.to_nonbonded_set(sp, r_cut_lj=r_cut, dsf=DSFParams(alpha=2.0, r_cut=r_cut))
+    st, step = mdfs.simulate_langevin(
+        R0,
+        V0,
+        jnp.array([side] * 3),
+        mdfs.to_bonded_set(sp),
+        nb_pbc,
+        dt=DT_PS,
+        mass=mass,
+        gamma=10.0,
+        temperature=300.0,
     )
-    sps = throughput(step, state, 2000, key=jax.random.PRNGKey(2))
-    print(fmt("NVT periodic x1", n, n * (n - 1) // 2, sps))
+    print(
+        fmt(
+            "NVT periodic dense",
+            n,
+            n * (n - 1) // 2,
+            throughput(step, st, 2000, jax.random.PRNGKey(2)),
+        )
+    )
 
 
 if __name__ == "__main__":

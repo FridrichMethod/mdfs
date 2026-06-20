@@ -21,7 +21,7 @@ from mdfs.paths import REPO_ROOT
 def main() -> None:
     sp, _ = mdfs.system_params_from_pdb(REPO_ROOT / "assets" / "poly_A.pdb")
     bonded = mdfs.to_bonded_set(sp)
-    nonbonded = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nonbonded = mdfs.to_nonbonded_set(sp)  # dense (N, N) path
     energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
     R0 = jnp.asarray(sp.positions)
 

@@ -28,7 +28,7 @@ def main() -> None:
     mdfs.configure_logging(logging.WARNING)
     sp, openmm_top = mdfs.system_params_from_pdb(mdfs.paths.REPO_ROOT / "assets" / "poly_A.pdb")
     bonded = mdfs.to_bonded_set(sp)
-    nonbonded = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nonbonded = mdfs.to_nonbonded_set(sp)  # dense (N, N) path
     energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
 
     mass = jnp.asarray(sp.masses)

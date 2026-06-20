@@ -34,9 +34,8 @@ def main() -> None:
     R0 = jnp.asarray(sp.positions - sp.positions.mean(axis=0) + side / 2.0)
 
     bonded = mdfs.to_bonded_set(sp)
-    nonbonded = mdfs.to_nonbonded_set(
+    nonbonded = mdfs.to_nonbonded_set(  # dense (N, N) path, periodic + DSF cutoff
         sp,
-        mdfs.all_pairs(sp.n_atoms),
         r_cut_lj=r_cut,
         dsf=DSFParams(alpha=2.0, r_cut=r_cut),
     )
