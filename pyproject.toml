@@ -107,6 +107,8 @@ convention = "google"
 "__init__.py" = ["F401", "D104", "RUF067"]  # package metadata dunders live here
 "*.ipynb" = ["F401", "T20", "ANN", "D", "E402"]
 "tests/**" = ["ANN", "D", "ARG", "PLW", "T20"]
+"examples/**" = ["ANN", "D", "T20", "E402"]  # demo scripts may print
+"benchmarks/**" = ["ANN", "D", "T20", "E402"]
 
 [tool.ruff.format]
 quote-style = "double"
