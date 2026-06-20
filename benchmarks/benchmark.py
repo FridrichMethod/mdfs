@@ -90,10 +90,10 @@ def throughput(step, state, n_steps, key=None) -> float:
     return n_steps / (time.perf_counter() - t0)
 
 
-def fmt(label: str, n_atoms: int, n_pairs: int, sps: float) -> str:
-    ns_day = sps * DT_PS * 86400.0 / 1000.0
+def fmt(label: str, n_atoms: int, n_pairs: int, sps: float, dt: float = DT_PS) -> str:
+    ns_day = sps * dt * 86400.0 / 1000.0
     return (
-        f"{label:<16} {n_atoms:>7} {n_pairs:>12,} {sps:>10,.0f} {ns_day:>9,.1f} {1e3 / sps:>9.2f}"
+        f"{label:<22} {n_atoms:>7} {n_pairs:>12,} {sps:>10,.0f} {ns_day:>9,.1f} {1e3 / sps:>9.2f}"
     )
 
 
@@ -130,6 +130,21 @@ def main() -> None:
             nb_p = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(n))
             st, step = mdfs.simulate_nve(R0, V0, None, bonded, nb_p, dt=DT_PS, mass=mass)
             print(fmt(f"NVE pair-list x{m}", n, n_pairs, throughput(step, st, max(30, 400 // m))))
+
+    # Hydrogen mass repartitioning: dt = 2 fs on the dense path (~4x more ns/day).
+    for m in (1, 20):
+        sp = replicate(base, m) if m > 1 else base
+        n = sp.n_atoms
+        bonded = mdfs.to_bonded_set(sp)
+        nb = mdfs.to_nonbonded_set(sp)
+        mass = jnp.asarray(mdfs.repartition_hydrogen_masses(sp.masses, sp.bonds))
+        R0 = jnp.asarray(sp.positions)
+        V0 = mdfs.maxwell_boltzmann_velocities(jax.random.PRNGKey(0), mass, 300.0, n)
+        st, step = mdfs.simulate_langevin(
+            R0, V0, None, bonded, nb, dt=0.002, mass=mass, gamma=10.0, temperature=300.0
+        )
+        sps = throughput(step, st, max(200, args.steps // m), key=jax.random.PRNGKey(3))
+        print(fmt(f"NVT dense+HMR 2fs x{m}", n, n * (n - 1) // 2, sps, dt=0.002))
 
     # Periodic (PBC + DSF + LJ cutoff), dense path.
     sp = base

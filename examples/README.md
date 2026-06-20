@@ -13,6 +13,7 @@ root with the project's `.venv`:
 | [`nve_vacuum.py`](nve_vacuum.py) | NVE | no | plain LJ+Coulomb, all-pairs | velocity-Verlet; energy conservation |
 | [`nvt_vacuum.py`](nvt_vacuum.py) | NVT | no | plain LJ+Coulomb, all-pairs | Langevin BAOAB; reporters (XTC + energy CSV) |
 | [`nvt_periodic.py`](nvt_periodic.py) | NVT | yes | DSF + LJ cutoff, MIC | periodic box, damped-shifted-force electrostatics |
+| [`nvt_hmr.py`](nvt_hmr.py) | NVT | no | plain LJ+Coulomb, dense | hydrogen mass repartitioning -> dt = 2 fs (~4× faster) |
 
 All examples use the bundled `assets/poly_A.pdb` (10-residue polyalanine, 103 atoms
 after adding hydrogens) and run on whatever device JAX selects (`JAX_PLATFORMS=cpu`
