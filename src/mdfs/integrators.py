@@ -1,3 +1,11 @@
+"""Time integrators (velocity-Verlet for NVE, BAOAB Langevin for NVT).
+
+Forces are obtained by automatic differentiation of a pure energy function
+``energy_fn(R) -> scalar`` (periodic boundary conditions, if any, are baked into
+that closure and into ``shift_fn``). This keeps integrators independent of how
+the energy/neighbor list is constructed.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -8,180 +16,122 @@ import jax
 import jax.numpy as jnp
 from jax import grad, jit
 
+from mdfs.constants import BOLTZMANN_KJ_PER_MOL_K
+from mdfs.types import EnergyFn, ShiftFn
+
 
 class State(NamedTuple):
-    R: jax.Array  # (N,3) positions in box coordinates
-    V: jax.Array  # (N,3) velocities
-    box: jax.Array  # (3,) side lengths (orthorhombic); can be ignored by energy_fn if unused
-    t: float  # scalar time
+    """Dynamical state of the system."""
+
+    R: jax.Array  # (N, 3) positions, nm
+    V: jax.Array  # (N, 3) velocities, nm/ps
+    box: jax.Array  # (3,) orthorhombic side lengths, nm (zeros for vacuum)
+    t: float | jax.Array  # time, ps (a traced scalar inside jit)
 
 
 def _as_col(mass: jax.Array | float, like: jax.Array) -> jax.Array:
-    """Broadcast mass (scalar or (N,) or (N,1)) to shape (N,1) matching 'like'."""
+    """Broadcast a scalar or ``(N,)`` mass to a ``(N, 1)`` column matching ``like``."""
     if jnp.ndim(mass) == 0:
         return jnp.full((like.shape[0], 1), mass)
     mass = jnp.asarray(mass)
-    if mass.ndim == 1:
-        mass = mass[:, None]
-    return mass
+    return mass[:, None] if mass.ndim == 1 else mass
+
+
+def kinetic_energy(V: jax.Array, mass: jax.Array | float) -> jax.Array:
+    """Kinetic energy ``0.5 * sum(m * v**2)`` in kJ/mol."""
+    m = _as_col(mass, V)
+    return 0.5 * jnp.sum(m * V * V)
+
+
+def temperature(
+    V: jax.Array,
+    mass: jax.Array | float,
+    kB: float = BOLTZMANN_KJ_PER_MOL_K,
+    n_dof: int | None = None,
+) -> jax.Array:
+    """Instantaneous temperature ``2 * KE / (n_dof * kB)`` in kelvin.
+
+    ``n_dof`` defaults to ``3 * N`` (no constraints, no COM removal).
+    """
+    if n_dof is None:
+        n_dof = 3 * V.shape[0]
+    return 2.0 * kinetic_energy(V, mass) / (n_dof * kB)
 
 
 def velocity_verlet(
-    energy_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    displacement_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    shift_fn: Callable[[jax.Array, jax.Array], jax.Array],
+    energy_fn: EnergyFn,
+    shift_fn: ShiftFn,
     dt: float,
     mass: jax.Array | float,
-):
-    """
-    Build a Velocity-Verlet stepper:
-      - Forces from automatic differentiation: F = -∂E/∂R
-      - Uses shift_fn for PBC-safe drifting and minimum-image displacements.
-    Returns step(state) -> new_state, suitable for lax.scan.
-    """
-    # F(R, box) = -grad_R E(R, box)
-    force_fn = jit(grad(energy_fn, argnums=0))
+) -> Callable[[State], State]:
+    """Velocity-Verlet (NVE) stepper. Returns ``step(state) -> state``."""
+    force_fn = grad(energy_fn)
 
     @jit
     def step(state: State) -> State:
         R, V, box, t = state
-        # broadcast mass to actual system size lazily
-        m_eff = _as_col(mass, like=R)
-        F = -force_fn(R, box)
-        V_half = V + 0.5 * dt * F / m_eff
-        R_new = shift_fn(R, V_half * dt)  # drift with PBC wrapping
-        F_new = -force_fn(R_new, box)
-        V_new = V_half + 0.5 * dt * F_new / m_eff
-        return State(R_new, V_new, box, t + dt)
+        m = _as_col(mass, R)
+        F = -force_fn(R)
+        v_half = V + 0.5 * dt * F / m
+        r_new = shift_fn(R, v_half * dt)
+        f_new = -force_fn(r_new)
+        v_new = v_half + 0.5 * dt * f_new / m
+        return State(r_new, v_new, box, t + dt)
 
     return step
 
 
 @dataclass(frozen=True)
 class LangevinParams:
-    gamma: float  # friction (1/time)
-    temperature: float
-    kB: float = 1.0  # Boltzmann constant (reduced units)
+    """Langevin thermostat parameters."""
+
+    gamma: float  # friction, 1/ps
+    temperature: float  # target temperature, K
+    kB: float = BOLTZMANN_KJ_PER_MOL_K
 
 
 def langevin_baoab(
-    energy_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    displacement_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    shift_fn: Callable[[jax.Array, jax.Array], jax.Array],
+    energy_fn: EnergyFn,
+    shift_fn: ShiftFn,
     dt: float,
     mass: jax.Array | float,
     params: LangevinParams,
-):
+) -> Callable[[State, jax.Array], tuple[State, jax.Array]]:
+    """BAOAB Langevin (NVT) stepper. Returns ``step(state, key) -> (state, key)``.
+
+    The O step is the exact Ornstein-Uhlenbeck velocity update
+    ``V <- c V + sqrt((1 - c^2) kT / m) xi`` with ``c = exp(-gamma dt)``.
     """
-    Build a BAOAB Langevin stepper:
-      B: half-kick (deterministic force)
-      A: half-drift (positions)
-      O: Ornstein–Uhlenbeck (stochastic velocity update)
-      A: half-drift
-      B: half-kick
-    Returns step(state, key) -> (new_state, new_key).
-    """
-    force_fn = jit(grad(lambda R, box: energy_fn(R, box), argnums=0))
-    gamma, T, kB = params.gamma, params.temperature, params.kB
+    force_fn = grad(energy_fn)
+    gamma, temp, kB = params.gamma, params.temperature, params.kB
+    c = jnp.exp(-gamma * dt)
 
     @jit
     def step(state: State, key: jax.Array) -> tuple[State, jax.Array]:
         R, V, box, t = state
-        m_eff = _as_col(mass, like=R)
+        m = _as_col(mass, R)
+        sigma = jnp.sqrt((1.0 - c * c) * kB * temp / m)
 
-        # Precompute noise scale for OU step
-        # Exact OU update over dt:
-        #   c = exp(-gamma*dt)
-        #   V <- c * V + sqrt((1 - c^2) * kT / m) * Normal(0,1)
-        c = jnp.exp(-gamma * dt)
-        sigma = jnp.sqrt((1.0 - c * c) * (kB * T)) / jnp.sqrt(m_eff)
-
-        # --- B: half kick
-        F = -force_fn(R, box)
-        V = V + 0.5 * dt * F / m_eff
-
-        # --- A: half drift
-        R = shift_fn(R, V * (0.5 * dt))
-
-        # --- O: Ornstein–Uhlenbeck
-        key, sub = jax.random.split(key)
-        xi = jax.random.normal(sub, shape=V.shape)
-        V = c * V + sigma * xi
-
-        # --- A: half drift
-        R = shift_fn(R, V * (0.5 * dt))
-
-        # --- B: half kick
-        F = -force_fn(R, box)
-        V = V + 0.5 * dt * F / m_eff
-
+        F = -force_fn(R)
+        V = V + 0.5 * dt * F / m  # B
+        R = shift_fn(R, 0.5 * dt * V)  # A
+        key, sub = jax.random.split(key)  # O
+        V = c * V + sigma * jax.random.normal(sub, V.shape)
+        R = shift_fn(R, 0.5 * dt * V)  # A
+        F = -force_fn(R)
+        V = V + 0.5 * dt * F / m  # B
         return State(R, V, box, t + dt), key
 
     return step
 
 
-# --- add below your existing LangevinParams and integrators ---
-
-
-def velocity_verlet_pairs(
-    energy_pairs_fn: Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
-    displacement_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    shift_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    dt: float,
+def maxwell_boltzmann_velocities(
+    key: jax.Array,
     mass: jax.Array | float,
-):
-    """Velocity-Verlet where energy depends on (R, box, pairs)."""
-    force_fn = jit(grad(lambda R, box, pairs: energy_pairs_fn(R, box, pairs), argnums=0))
-
-    @jit
-    def step(state: State, pairs: jax.Array) -> State:
-        R, V, box, t = state
-        m_eff = _as_col(mass, like=R)
-        F = -force_fn(R, box, pairs)
-        V_half = V + 0.5 * dt * F / m_eff
-        R_new = shift_fn(R, V_half * dt)
-        F_new = -force_fn(R_new, box, pairs)
-        V_new = V_half + 0.5 * dt * F_new / m_eff
-        return State(R_new, V_new, box, t + dt)
-
-    return step
-
-
-def langevin_baoab_pairs(
-    energy_pairs_fn: Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
-    displacement_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    shift_fn: Callable[[jax.Array, jax.Array], jax.Array],
-    dt: float,
-    mass: jax.Array | float,
-    params: LangevinParams,
-):
-    """BAOAB Langevin where energy depends on (R, box, pairs)."""
-    force_fn = jit(grad(lambda R, box, pairs: energy_pairs_fn(R, box, pairs), argnums=0))
-    gamma, T, kB = params.gamma, params.temperature, params.kB
-
-    @jit
-    def step(state: State, key: jax.Array, pairs: jax.Array) -> tuple[State, jax.Array]:
-        R, V, box, t = state
-        m_eff = _as_col(mass, like=R)
-
-        c = jnp.exp(-gamma * dt)
-        sigma = jnp.sqrt((1.0 - c * c) * (kB * T)) / jnp.sqrt(m_eff)
-
-        # B
-        F = -force_fn(R, box, pairs)
-        V = V + 0.5 * dt * F / m_eff
-        # A
-        R = shift_fn(R, V * (0.5 * dt))
-        # O
-        key, sub = jax.random.split(key)
-        xi = jax.random.normal(sub, shape=V.shape)
-        V = c * V + sigma * xi
-        # A
-        R = shift_fn(R, V * (0.5 * dt))
-        # B
-        F = -force_fn(R, box, pairs)
-        V = V + 0.5 * dt * F / m_eff
-
-        return State(R, V, box, t + dt), key
-
-    return step
+    temperature: float,
+    n_atoms: int,
+    kB: float = BOLTZMANN_KJ_PER_MOL_K,
+) -> jax.Array:
+    """Sample ``(N, 3)`` velocities from the Maxwell-Boltzmann distribution at ``temperature``."""
+    m = jnp.broadcast_to(_as_col(mass, jnp.zeros((n_atoms, 1))), (n_atoms, 1))
+    return jax.random.normal(key, (n_atoms, 3)) * jnp.sqrt(kB * temperature / m)

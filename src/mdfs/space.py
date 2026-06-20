@@ -1,12 +1,11 @@
-from __future__ import annotations
+"""Displacement and shift functions for free (vacuum) and periodic (MIC) space."""
 
-from collections.abc import Callable
+from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
 
-DisplacementFn = Callable[[jax.Array, jax.Array], jax.Array]
-ShiftFn = Callable[[jax.Array, jax.Array], jax.Array]
+from mdfs.types import DisplacementFn, ShiftFn
 
 
 def free() -> tuple[DisplacementFn, ShiftFn]:
@@ -22,9 +21,9 @@ def free() -> tuple[DisplacementFn, ShiftFn]:
 
 
 def periodic(box: jax.Array) -> tuple[DisplacementFn, ShiftFn]:
-    """
-    Orthorhombic periodic space with the Minimum-Image Convention (MIC).
-    `box` is shape (D,) with side lengths (e.g., jnp.array([Lx, Ly, Lz])) in nm.
+    """Orthorhombic periodic space with the Minimum-Image Convention (MIC).
+
+    ``box`` is shape (D,) with side lengths (e.g., ``jnp.array([Lx, Ly, Lz])``) in nm.
 
     - displacement_fn returns the nearest-image displacement.
     - shift_fn drifts positions and wraps them back into [0, L) per dimension.
@@ -48,9 +47,7 @@ def periodic(box: jax.Array) -> tuple[DisplacementFn, ShiftFn]:
 
 
 def wrap(R: jax.Array, box: jax.Array) -> jax.Array:
-    """
-    Convenience helper to wrap arbitrary coordinates into [0, L) under orthorhombic PBC.
-    """
+    """Convenience helper to wrap arbitrary coordinates into [0, L) under orthorhombic PBC."""
     box = jnp.asarray(box)
     inv_box = 1.0 / box
     return R - box * jnp.floor(R * inv_box)

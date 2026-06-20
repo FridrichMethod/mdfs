@@ -1,3 +1,5 @@
+"""Neighbor-pair providers: static all-pairs and a Verlet neighbor list."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -25,20 +27,21 @@ class NeighborListFns:
     update: Callable[[jax.Array, NeighborList], NeighborList]
 
 
-def _pair_indices(n: int) -> jax.Array:
-    """All i<j pairs as (Np,2), integer dtype."""
-    i = jnp.arange(n)
-    ii = jnp.repeat(i, n)
-    jj = jnp.tile(i, n)
-    mask = ii < jj
-    return jnp.stack([ii[mask], jj[mask]], axis=1).astype(jnp.int32)
+def all_pairs(n: int) -> jax.Array:
+    """All ``i < j`` index pairs as a static ``(n*(n-1)/2, 2)`` int32 array.
+
+    For small systems (and any vacuum simulation) this fixed pair list is the
+    simplest correct choice: it is jit-friendly and never needs rebuilding.
+    """
+    i, j = jnp.triu_indices(n, k=1)
+    return jnp.stack([i, j], axis=1).astype(jnp.int32)
 
 
 def _build_pairs(
     R: jax.Array, displacement_fn: Callable[[jax.Array, jax.Array], jax.Array], r_list: float
 ) -> jax.Array:
     """Prune all i<j pairs by distance < r_list using the provided displacement_fn."""
-    pairs = _pair_indices(R.shape[0])
+    pairs = all_pairs(R.shape[0])
     dR = displacement_fn(R[pairs[:, 0]], R[pairs[:, 1]])  # MIC if periodic
     r = jnp.linalg.norm(dR, axis=1)
     return pairs[r < r_list]
@@ -53,9 +56,10 @@ def _max_displacement(R: jax.Array, ref_R: jax.Array) -> jax.Array:
 def neighbor_list(
     displacement_fn: Callable[[jax.Array, jax.Array], jax.Array], r_cut: float, skin: float
 ) -> NeighborListFns:
-    """
-    Construct simple neighbor-list fns (allocate, update), à la jax_md.partition.
-    Uses a Verlet buffer of 'skin' and rebuilds when max disp > 0.5 * skin.
+    """Construct simple neighbor-list fns (allocate, update), a la jax_md.partition.
+
+    Uses a Verlet buffer of ``skin`` and rebuilds when max displacement exceeds
+    half the skin.
     """
     r_list = r_cut + skin
 
@@ -67,23 +71,17 @@ def neighbor_list(
             skin=skin,
         )
 
-    @jax.jit
     def update(R: jax.Array, nbrs: NeighborList) -> NeighborList:
-        md = _max_displacement(R, nbrs.ref_R)
-
-        def _rebuild(_):
+        # The pruned pair list has a data-dependent length, so rebuilding is done
+        # eagerly (outside jit). Drive jitted steppers with the returned pairs;
+        # rebuild between steps in Python when atoms drift past half the skin.
+        if float(_max_displacement(R, nbrs.ref_R)) > 0.5 * nbrs.skin:
             return NeighborList(
                 pairs=_build_pairs(R, displacement_fn, nbrs.r_list),
                 ref_R=R,
                 r_list=nbrs.r_list,
                 skin=nbrs.skin,
             )
-
-        def _keep(_):
-            return nbrs
-
-        # Standard criterion (also used in JAX-MD examples): rebuild when
-        # max displacement exceeds half the skin.  :contentReference[oaicite:1]{index=1}
-        return jax.lax.cond(md > (0.5 * nbrs.skin), _rebuild, _keep, operand=None)
+        return nbrs
 
     return NeighborListFns(allocate=allocate, update=update)
