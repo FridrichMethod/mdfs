@@ -25,6 +25,7 @@ from mdfs.io import (
     combine_callbacks,
     mdtraj_topology_from_openmm,
 )
+from mdfs.masses import repartition_hydrogen_masses
 from mdfs.minimize import MinimizationResult, minimize_energy, steepest_descent
 from mdfs.params import (
     SystemParams,
@@ -72,6 +73,7 @@ __all__ = [
     "nonbonded_energy",
     "periodic",
     "prepare_topology",
+    "repartition_hydrogen_masses",
     "run",
     "simulate_langevin",
     "simulate_nve",
