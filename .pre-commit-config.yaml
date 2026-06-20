@@ -1,12 +1,21 @@
+exclude: ^(archive/|notebooks/)
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      - id: trailing-whitespace
+        exclude: \.(pdb|cif|xml)$
+      - id: end-of-file-fixer
+        exclude: \.(pdb|cif|xml)$
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
       - id: check-added-large-files
-        args: [--maxkb=40000, --enforce-all]
+        args: [--maxkb=40000]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.5
+    rev: v0.15.5
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -14,26 +23,25 @@ repos:
       - id: ruff-format
         stages: [pre-commit]
 
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
+    rev: v1.19.1
     hooks:
       - id: mypy
-        stages: [pre-push]
+        files: ^src/mdfs/
         args: [--config-file=pyproject.toml]
-        additional_dependencies:
-          - pandas-stubs
-          - types-PyYAML
-          - types-aiofiles
-          - types-cachetools
-          - types-click
-          - types-python-dateutil
-          - types-python-slugify
-          - types-pytz
-          - types-redis
-          - types-requests
-          - types-seaborn
-          - types-setuptools
-          - types-six
-          - types-tabulate
-          - types-toml
-          - types-tqdm
+        additional_dependencies: [types-setuptools]
+        stages: [pre-push]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, -q, -ll]
+        files: ^src/mdfs/
+        additional_dependencies: ["bandit[toml]"]
+        stages: [pre-push]

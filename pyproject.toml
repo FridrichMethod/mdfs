@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=80", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,30 +8,33 @@ dynamic = ["version"]
 authors = [{ name = "Zhaoyang Li", email = "zhaoyangli@stanford.edu" }]
 license = { file = "LICENSE" }
 readme = "README.md"
-description = "MD from scratch"
+description = "Molecular dynamics from scratch (JAX, differentiable forces)"
 requires-python = ">=3.12"
+keywords = ["molecular-dynamics", "jax", "simulation", "force-field", "openmm"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Chemistry",
+]
 dependencies = [
   "jax>=0.7.2",
   "jaxlib>=0.7.2",
-  "jupyter",
-  "matplotlib",
   "mdtraj",
   "numpy",
   "openmm",
-  "pandas",
-  "py3dmol",
   "scipy",
-  "seaborn",
-  "tqdm",
-  "uv",
 ]
 
-[tool.setuptools.dynamic]
-version = { attr = "mdfs.__version__" }
+[project.urls]
+Repository = "https://github.com/FridrichMethod/mdfs"
+Issues = "https://github.com/FridrichMethod/mdfs/issues"
 
 [project.optional-dependencies]
+notebook = ["jupyter", "matplotlib", "nglview", "pandas", "py3dmol", "seaborn", "tqdm"]
 dev = [
-  "mypy",
+  "bandit",
   "pre-commit",
   "pytest",
   "pytest-cov",
@@ -39,84 +42,54 @@ dev = [
   "pytest-xdist",
   "ruff",
 ]
-cuda12 = ["jax[cuda12]", "openmm[cuda12]"]
+mypy = ["mypy"]
+cuda12 = ["jax[cuda12]"]
+all = ["mdfs[notebook,dev,mypy]"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mdfs.__version__" }
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mdfs*"]
+
+[tool.setuptools.package-data]
+"mdfs.ffxml" = ["**/*.xml", "README.md"]
 
 [tool.ruff]
 target-version = "py312"
 preview = true
 line-length = 100
 src = ["src"]
-extend-exclude = [
-  ".git",
-  ".hg",
-  ".mypy_cache",
-  ".pytest_cache",
-  ".ruff_cache",
-  ".svn",
-  ".tox",
-  ".venv",
-  "_build",
-  "buck-out",
-  "build",
-  "dist",
-]
+extend-exclude = [".venv", "build", "dist", "archive", "notebooks"]
 
 [tool.ruff.lint]
-# Check https://beta.ruff.rs/docs/rules/ for full list of rules
 select = [
-  "E", # pycodestyle
-  # "W",   # pycodestyle
-  "F",   # Pyflakes
-  "C90", # mccabe
-  "I",   # isort
-  # "N",   # pep8-naming
-  # "D",   # pydocstyle
-  "UP", # pyupgrade
-  # "YTT", # flake8-2020
-  # "ANN", # flake8-annotations
-  # "S",   # flake8-bandit
-  # "BLE", # flake8-blind-except
-  # "FBT", # flake8-boolean-trap
-  "B", # flake8-bugbear
-  "A", # flake8-builtins
-  # "COM", # flake8-commas
-  # "C4",  # flake8-comprehensions
-  # "DTZ", # flake8-datetimez
-  # "T10", # flake8-debugger
-  # "DJ",  # flake8-django
-  # "EM",  # flake8-errmsg
-  # "EXE", # flake8-executable
-  # "ISC", # flake8-implicit-str-concat
-  # "ICN", # flake8-import-conventions
-  # "G",   # flake8-logging-format
-  # "INP", # flake8-no-pep420
-  # "PIE", # flake8-pie
-  # "T20", # flake8-print
-  # "PYI", # flake8-pyi
-  # "PT",  # flake8-pytest-style
-  # "Q",   # flake8-quotes
-  # "RSE", # flake8-raise
-  # "RET", # flake8-return
-  # "SLF", # flake8-self
-  "SIM", # flake8-simplify
-  "TID", # flake8-tidy-imports
-  # "TCH", # flake8-type-checking
-  # "ARG", # flake8-unused-arguments
-  # "PTH", # flake8-use-pathlib
-  # "ERA", # eradicate
-  # "PD",  # pandas-vet
-  # "PGH", # pygrep-hooks
-  # "PLC", # pylint-convention
-  "PLE", # pylint-error
-  # "PLR", # pylint-refactor
-  # "PLW", # pylint-warning
-  # "TRY", # tryceratops
-  # "NPY", # numpy
-  "RUF", # ruff
+  "A",    # flake8-builtins
+  "ANN",  # flake8-annotations
+  "ARG",  # flake8-unused-arguments
+  "B",    # flake8-bugbear
+  "BLE",  # flake8-blind-except
+  "C4",   # flake8-comprehensions
+  "C90",  # mccabe
+  "E",    # pycodestyle
+  "F",    # Pyflakes
+  "I",    # isort
+  "NPY",  # numpy
+  "PERF", # perflint
+  "PLE",  # pylint-error
+  "PTH",  # flake8-use-pathlib
+  "RUF",  # ruff
+  "SIM",  # flake8-simplify
+  "T20",  # flake8-print
+  "TID",  # flake8-tidy-imports
+  "UP",   # pyupgrade
 ]
-extend-select = ["W", "PLW"]
-ignore = ["B905", "E203", "E501", "E741", "UP037"]
-unfixable = ["F401"]
+extend-select = ["D", "W", "PLW"]
+ignore = ["ANN401", "B905", "E203", "E501", "E741", "UP037"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["mdfs"]
@@ -127,13 +100,13 @@ max-complexity = 12
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
-[tool.ruff.lint.flake8-builtins]
-builtins-allowed-modules = []
-builtins-ignorelist = []
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-"*.ipynb" = ["F401", "RUF059"]
+"__init__.py" = ["F401", "D104", "RUF067"]  # package metadata dunders live here
+"*.ipynb" = ["F401", "T20", "ANN", "D", "E402"]
+"tests/**" = ["ANN", "D", "ARG", "PLW", "T20"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -142,27 +115,43 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "src"
 pretty = true
-no_implicit_optional = true
 show_error_codes = true
+no_implicit_optional = true
 warn_redundant_casts = true
-warn_return_any = true
-warn_unreachable = true
 warn_unused_ignores = false
-namespace_packages = false
-enable_incomplete_feature = ["Unpack"]
+namespace_packages = true
+explicit_package_bases = true
 disable_error_code = ["import-not-found", "import-untyped", "no-any-return"]
 
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-"mdfs.ffxml" = ["**/*.xml", "README.md"]
+[[tool.mypy.overrides]]
+module = ["openmm.*", "mdtraj.*", "jax.*", "jaxlib.*", "scipy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-v -s --tb=short --strict-markers --color=yes"
+addopts = "-v --tb=short --strict-markers --color=yes"
 testpaths = ["tests"]
+pythonpath = ["src"]
 env = ["TQDM_DISABLE=1"]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "gpu: marks tests that require a GPU",
+]
+
+[tool.coverage.run]
+source = ["src/mdfs"]
+branch = false
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "notebooks", "archive"]

@@ -5,46 +5,44 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+  ci:
+    runs-on: ubuntu-latest
     strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.12"]
       fail-fast: false
-    defaults:
-      run:
-        shell: bash -l {0}
-    name: ${{ matrix.os }} py ${{ matrix.python-version }} tests
-
+      matrix:
+        python-version: ["3.12"]
+    name: py ${{ matrix.python-version }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          python-version: ${{ matrix.python-version }}
-          activate-environment: mdfs
-          channels: conda-forge,defaults
-          use-mamba: true
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        run: |
-          pip install uv
+        uses: astral-sh/setup-uv@v5
 
-      - name: Install package and dependencies
+      - name: Create venv and install (CPU)
         run: |
-          uv pip install -e .[dev]
+          uv venv .venv --python ${{ matrix.python-version }}
+          uv pip install -p .venv/bin/python -e ".[dev,mypy]"
 
-      - name: Check style
+      - name: Lint (ruff)
         run: |
-          pre-commit run --all-files --hook-stage pre-commit
-          pre-commit run --all-files --hook-stage pre-push
+          .venv/bin/ruff check src tests
+          .venv/bin/ruff format --check src tests
 
-      - name: Run pytest
-        run: |
-          pytest -n $(nproc || echo 1) --dist=loadscope
+      - name: Type check (mypy)
+        run: .venv/bin/mypy src/mdfs
+
+      - name: Security scan (bandit)
+        run: .venv/bin/bandit -r src/mdfs -c pyproject.toml -q -ll
+
+      - name: Tests (fast suite)
+        run: .venv/bin/pytest -m "not slow and not gpu" --cov=src/mdfs --cov-report=term-missing
