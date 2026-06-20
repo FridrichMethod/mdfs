@@ -172,3 +172,24 @@ def test_nonbonded_cutoff_excludes_far_pairs():
     assert abs(float(energy.nonbonded_energy(far, nb, disp))) < 1e-9
     near = jnp.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.35]])  # within cutoff -> nonzero
     assert abs(float(energy.nonbonded_energy(near, nb, disp))) > 1e-6
+
+
+def test_dense_nonbonded_cutoff_and_grad_finite():
+    """Dense (N, N) path: cutoff masks far pairs and forces stay finite (no scatter)."""
+    disp, _ = mdfs.free()
+    nb = energy.NonbondedSet(
+        types=jnp.arange(3),
+        q=jnp.array([0.5, -0.5, 0.0]),
+        lj_params=energy.LJMixParams(jnp.array([1.0, 1.0, 1.0]), jnp.array([0.3, 0.3, 0.3])),
+        exclude_mask=jnp.zeros((3, 3), dtype=bool),
+        exc_pairs=jnp.zeros((0, 2), dtype=jnp.int32),
+        exc_qq=jnp.zeros(0),
+        exc_sigma=jnp.zeros(0),
+        exc_eps=jnp.zeros(0),
+        r_cut_lj=1.0,
+        dsf=energy.DSFParams(alpha=1.0, r_cut=1.0),
+    )  # pairs=None -> dense
+    R = jnp.array([[0.0, 0.0, 0.0], [0.35, 0.0, 0.0], [5.0, 0.0, 0.0]])  # atom 2 beyond cutoff
+    assert abs(float(energy.nonbonded_energy(R, nb, disp))) > 1e-6
+    g = np.array(jax.grad(lambda r: energy.nonbonded_energy(r, nb, disp))(R))
+    assert np.all(np.isfinite(g))

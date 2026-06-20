@@ -49,8 +49,24 @@ def mdfs_pieces(poly_a_params):
     R = jnp.asarray(sp.positions)
     disp, _ = mdfs.free()
     bonded = mdfs.to_bonded_set(sp)
-    nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nb = mdfs.to_nonbonded_set(sp)  # dense default
     return sp, R, disp, bonded, nb
+
+
+def test_dense_and_pairlist_agree(poly_a_params):
+    """The dense (N, N) and pair-list paths give identical energies and forces."""
+    sp = poly_a_params
+    R = jnp.asarray(sp.positions)
+    disp, _ = mdfs.free()
+    bonded = mdfs.to_bonded_set(sp)
+    e_dense = mdfs.total_energy_fn(disp, bonded, mdfs.to_nonbonded_set(sp))
+    e_pairs = mdfs.total_energy_fn(
+        disp, bonded, mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    )
+    assert float(e_dense(R)) == pytest.approx(float(e_pairs(R)), rel=1e-9)
+    f_dense = np.array(-jax.grad(e_dense)(R))
+    f_pairs = np.array(-jax.grad(e_pairs)(R))
+    assert np.max(np.abs(f_dense - f_pairs)) < 1e-6
 
 
 def test_bonded_terms_match_openmm(reference, mdfs_pieces):

@@ -11,7 +11,7 @@ import mdfs
 def _setup(poly_a_params):
     sp = poly_a_params
     bonded = mdfs.to_bonded_set(sp)
-    nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nb = mdfs.to_nonbonded_set(sp)  # dense default
     R0 = jnp.asarray(sp.positions)
     V0 = jnp.zeros((sp.n_atoms, 3))
     return sp, bonded, nb, R0, V0

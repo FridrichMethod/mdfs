@@ -46,10 +46,13 @@ def test_builders_shapes(poly_a_params):
     bonded = mdfs.to_bonded_set(sp)
     assert bonded.bonds.shape == sp.bonds.shape
     assert bonded.k_r.shape == (sp.bonds.shape[0],)
-    nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nb = mdfs.to_nonbonded_set(sp)  # dense default
     assert nb.types.shape == (sp.n_atoms,)
     assert nb.q.shape == (sp.n_atoms,)
+    assert nb.pairs is None  # dense (N, N) path
     assert nb.dsf is None and nb.r_cut_lj is None  # plain vacuum defaults
+    nb_pairs = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    assert nb_pairs.pairs is not None  # explicit pair-list path
 
 
 def test_system_params_from_pdb_roundtrip():

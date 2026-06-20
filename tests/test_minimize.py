@@ -33,7 +33,7 @@ def test_bfgs_finds_quadratic_minimum():
 def test_minimize_relaxes_poly_a(poly_a_params):
     sp = poly_a_params
     bonded = mdfs.to_bonded_set(sp)
-    nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nb = mdfs.to_nonbonded_set(sp)  # dense default
     energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nb)
     res = minimize_energy(energy_fn, jnp.asarray(sp.positions), max_iter=200)
     assert res.energy < res.initial_energy

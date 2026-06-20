@@ -35,7 +35,7 @@ def test_trajectory_recorder_roundtrip(poly_a_bundle, tmp_path):
 def test_energy_logger_records_and_csv(poly_a_params, tmp_path):
     sp = poly_a_params
     bonded = mdfs.to_bonded_set(sp)
-    nb = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+    nb = mdfs.to_nonbonded_set(sp)  # dense default
     energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nb)
     logger = EnergyLogger(energy_fn, sp.masses, log_to_logger=False)
     logger(10, _state(sp, 0.01))
