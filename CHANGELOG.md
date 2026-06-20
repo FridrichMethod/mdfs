@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Performance
+
+- **Dense (N, N) nonbonded path, now the default.** Forces come from `jax.grad`
+  of the energy; with a pair list the gradient must scatter-add O(N^2) pair
+  contributions onto atoms, which is very slow on GPU. The dense formulation
+  builds pairwise terms by broadcasting and reduces along an axis (no scatter),
+  giving 3.4x–~2,600x faster dynamics (e.g. 2,060 atoms: ~0.1 -> 265 ns/day) and
+  making the GPU the fastest backend. Pass an explicit pair list / neighbor list
+  for the O(N) pair-list path on larger systems. See `benchmarks/`.
+
 ### Fixed
 
 - **Force-field loading now works.** `params.py` was rewritten to read

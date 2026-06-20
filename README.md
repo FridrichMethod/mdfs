@@ -57,7 +57,7 @@ import mdfs
 sp, openmm_top = mdfs.system_params_from_pdb("assets/poly_A.pdb")
 
 bonded = mdfs.to_bonded_set(sp)
-nonbonded = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+nonbonded = mdfs.to_nonbonded_set(sp)  # dense (N, N) path (fast forces; default)
 energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
 
 # Relax the structure before dynamics
@@ -111,12 +111,13 @@ OpenMM/Amber units throughout: length **nm**, time **ps**, mass **amu**, energy
 - **Electrostatics:** plain Coulomb in vacuum (no cutoff); a damped-shifted-force
   (DSF) option is provided for cutoff/periodic use. No Ewald/PME.
 - **No bond constraints.** Hydrogens are integrated explicitly, so use a small
-  timestep (e.g. `dt = 0.0005 ps`). The default pair list is static all-pairs,
-  appropriate for the small systems mdfs targets.
-- **Small-system scope.** mdfs is a differentiable teaching/research engine, not a
-  large-scale production code. The all-pairs nonbonded loop is O(N^2) and the step
-  loop runs in Python, so it is practical for ~hundreds to ~1,000 atoms; see
-  [`benchmarks/`](benchmarks). For large or solvated systems use OpenMM/GROMACS.
+  timestep (e.g. `dt = 0.0005 ps`).
+- **Small/medium-system scope.** Forces come from `jax.grad` of the energy. The
+  default **dense (N, N)** nonbonded path makes that gradient a fast GPU reduction
+  (e.g. ~420 ns/day at 100 atoms, ~265 at 2,000, ~75 at 5,000) but uses O(N^2)
+  memory — practical up to a few thousand atoms; see [`benchmarks/`](benchmarks).
+  For larger or solvated systems pass an O(N) neighbor list
+  (`mdfs.partition.neighbor_list`) or use OpenMM/GROMACS.
 
 ## See also
 

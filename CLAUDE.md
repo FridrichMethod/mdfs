@@ -61,6 +61,10 @@ tests/            mirrors src/ (+ regressions/ for the poly_A e2e)
 - Energy functions stay pure (`E(R) -> scalar`) so `jax.grad`/`jit` apply cleanly.
 - New parameters come from OpenMM's resolved `System`, never by re-parsing FFXML
   internals.
+- **Nonbonded forces use the dense (N, N) path by default** (`NonbondedSet.pairs is None`): broadcasting + axis-reduction so the autodiff gradient reduces rather
+  than scatters (fast on GPU, O(N^2) memory). Only switch to the pair-list path
+  (pass `pairs=`) for large/dilute systems; never reintroduce a scatter-based
+  default. See `benchmarks/`.
 
 ## Correctness bar
 
