@@ -1,43 +1,114 @@
 # mdfs
 
-MD from scratch
+**Molecular dynamics from scratch** -- a small, JAX-based, *differentiable* MD
+engine. Energy terms are written explicitly and forces come from `jax.grad`.
+OpenMM assigns force-field parameters (Amber ff19SB) and adds hydrogens; MDTraj
+handles trajectory output.
 
-> **Author:** [Zhaoyang Li](mailto:zhaoyangli@stanford.edu)  
-> **Published:** October 30, 2025
+[![CI](https://github.com/FridrichMethod/mdfs/actions/workflows/ci.yml/badge.svg)](https://github.com/FridrichMethod/mdfs/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3120/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://img.shields.io/badge/mypy-checked-blue.svg)](https://mypy-lang.org/)
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3120/) [![CI Status](https://github.com/fridrichmethod/mdfs/workflows/CI/badge.svg)](https://github.com/fridrichmethod/mdfs/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+> **Author:** [Zhaoyang Li](mailto:zhaoyangli@stanford.edu)
+
+## Contents
+
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [Layout](#layout)
+- [Units](#units)
+- [Limitations](#limitations)
+- [See also](#see-also)
 
 ## Installation
 
-1. Install `miniconda` following the instructions [here](https://www.anaconda.com/docs/getting-started/miniconda/install).
-2. Then run the following commands to setup the environment in the repo root directory:
+`mdfs` uses a `uv`-managed virtual environment (`.venv`, Python 3.12). The GPU
+path is JAX (`jax[cuda12]`); OpenMM runs on CPU.
 
 ```bash
-# Create a conda environment
-conda create -n mdfs python=3.12 --yes
-conda activate mdfs
+# One-shot (creates .venv, installs the package + dev tools + CUDA JAX):
+make venv
 
-# Install uv
-pip install uv
-
-# Install required packages with correct versions
-uv pip install -e .[dev]
+# Or manually:
+uv venv .venv --python 3.12
+uv pip install -p .venv/bin/python -e ".[dev,mypy]" "jax[cuda12]"
 ```
 
-For systems equipped with NVIDIA GPUs, CUDA-enabled versions of JAX and OpenMM (compatible with CUDA 12) can be installed using:
+Verify the GPU is visible:
 
 ```bash
-uv pip install -e .[dev,cuda12]
+.venv/bin/python -c "import jax; print(jax.devices())"
 ```
 
----
+For a CPU-only setup, drop `"jax[cuda12]"`.
 
-To validate your installation is successful, you may simply run `pytest`.
+## Quickstart
 
-***Let's start now!***
+Run a short vacuum simulation of the bundled polyalanine and write a trajectory
+and energy log:
 
-## See Also
+```python
+import jax
+import mdfs
 
-- [JAX, M.D.](https://github.com/google/jax-md): Differentiable, Hardware Accelerated, Molecular Dynamics
-- [OpenMM](https://github.com/openmm/openmm): OpenMM is a toolkit for molecular simulation using high performance GPU code.
-- [MDTraj](https://github.com/mdtraj/mdtraj): An open library for the analysis of molecular dynamics trajectories
+# PDB -> add hydrogens -> resolve ff19SB parameters via OpenMM
+sp, openmm_top = mdfs.system_params_from_pdb("assets/poly_A.pdb")
+
+bonded = mdfs.to_bonded_set(sp)
+nonbonded = mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms))
+energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
+
+# Relax the structure before dynamics
+R0 = mdfs.minimize_energy(energy_fn, jax.numpy.asarray(sp.positions)).positions
+
+# NVT (Langevin) dynamics at 300 K
+key = jax.random.PRNGKey(0)
+V0 = mdfs.maxwell_boltzmann_velocities(key, sp.masses, 300.0, sp.n_atoms)
+state, step = mdfs.simulate_langevin(
+    R0, V0, box=None, bonded=bonded, nonbonded=nonbonded,
+    dt=0.0005, mass=sp.masses, gamma=2.0, temperature=300.0,
+)
+
+traj = mdfs.TrajectoryRecorder(mdfs.mdtraj_topology_from_openmm(openmm_top))
+log = mdfs.EnergyLogger(energy_fn, sp.masses)
+mdfs.run(step, state, 2000, key=jax.random.PRNGKey(1),
+         report_interval=50, callback=mdfs.combine_callbacks(traj, log))
+
+traj.save("poly_A.xtc")
+log.save_csv("poly_A_energy.csv")
+```
+
+A complete walkthrough is in `notebooks/md_simulation.ipynb`.
+
+## Layout
+
+```
+src/mdfs/      package (see CLAUDE.md for a module-by-module map)
+assets/        poly_A.pdb test system
+notebooks/     end-to-end demo
+tests/         mirrors src/ (+ regressions/ for the poly_A e2e)
+```
+
+## Units
+
+OpenMM/Amber units throughout: length **nm**, time **ps**, mass **amu**, energy
+**kJ/mol**, charge **e**. See `src/mdfs/constants.py`.
+
+## Limitations
+
+- **No CMAP.** ff19SB's backbone CMAP correction is intentionally not implemented;
+  all other bonded (incl. impropers) and nonbonded terms are. mdfs energies/forces
+  match an OpenMM `NoCutoff` system to machine precision *minus the CMAP term*.
+- **Electrostatics:** plain Coulomb in vacuum (no cutoff); a damped-shifted-force
+  (DSF) option is provided for cutoff/periodic use. No Ewald/PME.
+- **No bond constraints.** Hydrogens are integrated explicitly, so use a small
+  timestep (e.g. `dt = 0.0005 ps`). The default pair list is static all-pairs,
+  appropriate for the small systems mdfs targets.
+
+## See also
+
+- [JAX, M.D.](https://github.com/google/jax-md) -- differentiable, hardware-accelerated MD
+- [OpenMM](https://github.com/openmm/openmm) -- high-performance MD toolkit
+- [MDTraj](https://github.com/mdtraj/mdtraj) -- MD trajectory analysis
