@@ -111,7 +111,9 @@ OpenMM/Amber units throughout: length **nm**, time **ps**, mass **amu**, energy
 - **Electrostatics:** plain Coulomb in vacuum (no cutoff); a damped-shifted-force
   (DSF) option is provided for cutoff/periodic use. No Ewald/PME.
 - **No bond constraints.** Hydrogens are integrated explicitly, so use a small
-  timestep (e.g. `dt = 0.0005 ps`).
+  timestep (e.g. `dt = 0.0005 ps`), or apply hydrogen mass repartitioning
+  (`mdfs.repartition_hydrogen_masses`) to run stably at `dt = 0.002 ps` (~4×
+  faster; see `examples/nvt_hmr.py`).
 - **Small/medium-system scope.** Forces come from `jax.grad` of the energy. The
   default **dense (N, N)** nonbonded path makes that gradient a fast GPU reduction
   (e.g. ~420 ns/day at 100 atoms, ~265 at 2,000, ~75 at 5,000) but uses O(N^2)

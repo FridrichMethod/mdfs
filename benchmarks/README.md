@@ -26,11 +26,19 @@ it a *scatter*, which is far slower on GPU (see "Why the dense path" below).
 | NVE dense | 2,060 | 2,120,770 | 6,143 | 265 | 0.16 |
 | NVE dense | 5,150 | 13,258,675 | 1,725 | 74 | 0.58 |
 | NVT periodic dense | 103 | 5,253 | 9,411 | 407 | 0.11 |
+| NVT dense + HMR (2 fs) | 103 | 5,253 | 8,126 | 1,404 | 0.12 |
+| NVT dense + HMR (2 fs) | 2,060 | 2,120,770 | 6,111 | 1,056 | 0.16 |
 | NVE pair-list | 103 | 5,253 | 2,846 | 123 | 0.35 |
 | NVE pair-list | 515 | 132,355 | 151 | 6.5 | 6.6 |
 
 Dense vs pair-list speedup: **3.4× at 103 atoms, 55× at 515, ~2,600× at 2,060**
 (the pair-list path falls off as O(N²); at 2,060 atoms it is ~0.1 ns/day).
+
+**Hydrogen mass repartitioning (HMR)** (`mdfs.repartition_hydrogen_masses`) slows
+X-H stretches so dt = 2 fs is stable without constraints, a further ~3.5-4×:
+poly_A reaches **1,404 ns/day** and 2,060 atoms **1,056 ns/day**. End to end, the
+dense path + HMR is ~11× (103 atoms) to ~10,000× (2,060 atoms) faster than the
+original pair-list engine at 0.5 fs.
 
 ## Dense base system across device / precision (poly_A, 103 atoms, NVE)
 
@@ -56,13 +64,19 @@ memory (~50 MB at 2,060 atoms, ~300 MB at 5,150), so it is ideal up to a few
 thousand atoms. For larger or dilute/solvated systems, pass an O(N) neighbor list
 (`mdfs.partition.neighbor_list`) to use the pair-list path.
 
-## Remaining envelope / future speedups
+## Acceleration status
 
-- **Bigger timestep:** constraints or hydrogen-mass repartitioning would allow
-  2–4 fs (4–8× more ns/day); currently hydrogens are integrated explicitly at 0.5 fs.
-- **`lax.scan` loop:** removes per-step Python dispatch (minor at these sizes).
-- **On-device cell list:** O(N) neighbor search for large systems without the
-  O(N²) dense memory.
+- **Dense (N, N) nonbonded path — done (default).** Forces reduce instead of
+  scatter; the big win above.
+- **Hydrogen mass repartitioning — done.** `mdfs.repartition_hydrogen_masses`
+  enables dt = 2 fs (~4×). See `examples/nvt_hmr.py`.
+- **`lax.scan` loop — measured, not adopted.** Replacing the Python step loop with
+  an on-device scan gave ~0.9× (no gain) on the dense path: async dispatch already
+  hides per-step latency and the step is GPU-compute-bound, so scan only adds
+  complexity and breaks per-step callbacks.
+- **On-device cell list — future.** Would give O(N) neighbor search for large
+  systems without the dense path's O(N²) memory; significant effort, and of
+  limited benefit for the dense single-molecule regime mdfs targets.
 - mdfs remains a small/medium-system differentiable engine (energies/forces
   validated against OpenMM to machine precision); for large solvated production
   runs use OpenMM/GROMACS.

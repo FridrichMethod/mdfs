@@ -65,6 +65,9 @@ tests/            mirrors src/ (+ regressions/ for the poly_A e2e)
   than scatters (fast on GPU, O(N^2) memory). Only switch to the pair-list path
   (pass `pairs=`) for large/dilute systems; never reintroduce a scatter-based
   default. See `benchmarks/`.
+- For a larger timestep (dt = 2 fs), apply `repartition_hydrogen_masses` to the
+  masses before integrating. `lax.scan` over steps was measured and *not* adopted
+  (no speedup on the dense path); don't re-add it.
 
 ## Correctness bar
 

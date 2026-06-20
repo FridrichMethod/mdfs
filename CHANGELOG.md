@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 ### Performance
 
+- **Hydrogen mass repartitioning** (`repartition_hydrogen_masses`) moves mass onto
+  hydrogens so dt = 2 fs is stable without constraints, ~4x more ns/day (poly_A:
+  ~400 -> ~1,400 ns/day). Mass-conserving; see `examples/nvt_hmr.py`.
 - **Dense (N, N) nonbonded path, now the default.** Forces come from `jax.grad`
   of the energy; with a pair list the gradient must scatter-add O(N^2) pair
   contributions onto atoms, which is very slow on GPU. The dense formulation
