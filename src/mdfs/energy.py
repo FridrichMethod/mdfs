@@ -197,9 +197,15 @@ class NonbondedSet(NamedTuple):
     (LJ + unscreened Coulomb over all non-excluded pairs), which reproduces an
     OpenMM ``NoCutoff`` system exactly (minus CMAP). Provide ``r_cut_lj`` and a
     ``DSFParams`` for periodic/cutoff electrostatics.
+
+    ``pairs=None`` (the default) uses the **dense** ``(N, N)`` formulation: forces
+    (``jax.grad``) reduce over an axis instead of scattering onto atoms, which is
+    far faster on GPU but uses O(N^2) memory -- ideal for up to a few thousand
+    atoms. Provide an explicit ``(Np, 2)`` pair list (e.g. from
+    :func:`mdfs.partition.neighbor_list`) to use the O(N) pair-list path for
+    larger systems.
     """
 
-    pairs: jax.Array  # (Np, 2) main-loop neighbor pairs, i < j
     types: jax.Array  # (N,) index into lj_params (= arange(N) for per-particle LJ)
     q: jax.Array  # (N,) charges (e)
     lj_params: LJMixParams
@@ -212,6 +218,7 @@ class NonbondedSet(NamedTuple):
     r_cut_lj: float | None = None
     dsf: DSFParams | None = None
     shift_lj: bool = False
+    pairs: jax.Array | None = None  # (Np, 2); None -> dense (N, N) path
 
 
 def exception_energy(
@@ -222,7 +229,7 @@ def exception_energy(
     """Energy of nonbonded exception (1-4) pairs using their own parameters.
 
     Pure 1-2/1-3 exclusions carry ``qq = eps = 0`` and contribute nothing, so the
-    full exception list can be passed safely.
+    full exception list can be passed safely. This is an O(N) sparse term.
     """
     if nb.exc_pairs.shape[0] == 0:
         return jnp.asarray(0.0)
@@ -233,32 +240,68 @@ def exception_energy(
     return jnp.sum(e_lj + e_coul)
 
 
-def nonbonded_energy(
-    R: jax.Array,
-    nb: NonbondedSet,
-    displacement_fn: DisplacementFn,
+def _pair_lj_coulomb(
+    r: jax.Array, eps_ij: jax.Array, sig_ij: jax.Array, qiqj: jax.Array, nb: NonbondedSet
 ) -> jax.Array:
-    """LJ + Coulomb over the main pair list, with exclusions and the exception term."""
-    i, j = nb.pairs[:, 0], nb.pairs[:, 1]
-    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1)
-    keep = ~nb.exclude_mask[i, j]
-
-    eps_ij, sig_ij = lj_mixed_eps_sigma(nb.types[i], nb.types[j], nb.lj_params)
+    """LJ + Coulomb energy for a batch of pairs at distances ``r`` (cutoffs applied)."""
     e_lj = lj_12_6(eps_ij, sig_ij, r)
     if nb.r_cut_lj is not None:
         if nb.shift_lj:
             e_lj = e_lj - lj_12_6(eps_ij, sig_ij, jnp.full_like(r, nb.r_cut_lj))
         e_lj = jnp.where(r < nb.r_cut_lj, e_lj, 0.0)
-
-    qiqj = nb.q[i] * nb.q[j]
     if nb.dsf is None:
         e_coul = coulomb_plain(qiqj, r, nb.k_e)
     else:
         e_coul = coulomb_dsf_pair(qiqj, r, nb.dsf.alpha, nb.dsf.r_cut, nb.dsf.k_e)
         e_coul = jnp.where(r < nb.dsf.r_cut, e_coul, 0.0)
+    return e_lj + e_coul
 
-    e_main = jnp.sum(jnp.where(keep, e_lj + e_coul, 0.0))
+
+def _nonbonded_dense(R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn) -> jax.Array:
+    """Dense ``(N, N)`` LJ + Coulomb via broadcasting (grad reduces, never scatters)."""
+    n = R.shape[0]
+    d_r = displacement_fn(R[:, None, :], R[None, :, :])  # (N, N, 3)
+    # Push the (zero-distance) diagonal to a finite distance so 1/r and (sig/r)^12
+    # have finite values *and* gradients; it is masked out below regardless.
+    r = jnp.sqrt(jnp.sum(d_r * d_r, axis=-1) + jnp.eye(n) + _EPS * _EPS)
+
+    eps = nb.lj_params.eps_type[nb.types]
+    sig = nb.lj_params.sig_type[nb.types]
+    eps_ij = jnp.sqrt(eps[:, None] * eps[None, :])
+    sig_ij = 0.5 * (sig[:, None] + sig[None, :])
+    qiqj = nb.q[:, None] * nb.q[None, :]
+
+    e = _pair_lj_coulomb(r, eps_ij, sig_ij, qiqj, nb)
+    keep = (~nb.exclude_mask) & (~jnp.eye(n, dtype=bool))
+    e_main = 0.5 * jnp.sum(jnp.where(keep, e, 0.0))  # each unordered pair counted twice
     return e_main + exception_energy(R, nb, displacement_fn)
+
+
+def _nonbonded_pairs(R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn) -> jax.Array:
+    """Pair-list ``(Np, 2)`` LJ + Coulomb (O(N) with a neighbor list; grad scatters)."""
+    assert nb.pairs is not None
+    i, j = nb.pairs[:, 0], nb.pairs[:, 1]
+    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1)
+    keep = ~nb.exclude_mask[i, j]
+    eps_ij, sig_ij = lj_mixed_eps_sigma(nb.types[i], nb.types[j], nb.lj_params)
+    e = _pair_lj_coulomb(r, eps_ij, sig_ij, nb.q[i] * nb.q[j], nb)
+    e_main = jnp.sum(jnp.where(keep, e, 0.0))
+    return e_main + exception_energy(R, nb, displacement_fn)
+
+
+def nonbonded_energy(
+    R: jax.Array,
+    nb: NonbondedSet,
+    displacement_fn: DisplacementFn,
+) -> jax.Array:
+    """LJ + Coulomb with exclusions and the exception term.
+
+    Uses the dense ``(N, N)`` path when ``nb.pairs is None`` (default) and the
+    pair-list path otherwise. Both produce identical energies and forces.
+    """
+    if nb.pairs is None:
+        return _nonbonded_dense(R, nb, displacement_fn)
+    return _nonbonded_pairs(R, nb, displacement_fn)
 
 
 # ---------------------------------------------------------------------------

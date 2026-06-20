@@ -340,7 +340,7 @@ def to_bonded_set(sp: SystemParams) -> BondedSet:
 
 def to_nonbonded_set(
     sp: SystemParams,
-    pairs: np.ndarray | jax.Array,
+    pairs: np.ndarray | jax.Array | None = None,
     *,
     k_e: float = ONE_4PI_EPS0,
     r_cut_lj: float | None = None,
@@ -349,11 +349,13 @@ def to_nonbonded_set(
 ) -> NonbondedSet:
     """Convert extracted parameters into a JAX :class:`~mdfs.energy.NonbondedSet`.
 
-    ``pairs`` is the main-loop pair list (e.g. :func:`mdfs.partition.all_pairs`).
-    Defaults give the plain, no-cutoff vacuum form that matches OpenMM ``NoCutoff``.
+    With ``pairs=None`` (default) the fast dense ``(N, N)`` path is used. Pass an
+    explicit pair list (e.g. :func:`mdfs.partition.all_pairs` or a neighbor list)
+    to use the O(N) pair-list path for large systems. Defaults give the plain,
+    no-cutoff vacuum form that matches OpenMM ``NoCutoff``.
     """
     return NonbondedSet(
-        pairs=jnp.asarray(pairs),
+        pairs=None if pairs is None else jnp.asarray(pairs),
         types=jnp.arange(sp.n_atoms),
         q=jnp.asarray(sp.charges),
         lj_params=LJMixParams(eps_type=jnp.asarray(sp.epsilon), sig_type=jnp.asarray(sp.sigma)),
