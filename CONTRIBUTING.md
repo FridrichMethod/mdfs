@@ -12,18 +12,18 @@ make venv          # creates .venv (Python 3.12) and installs everything
 ## Development workflow
 
 1. Branch off `main`.
-2. Write tests first (the suite mirrors `src/mdfs/`; physics changes must keep
+1. Write tests first (the suite mirrors `src/mdfs/`; physics changes must keep
    `tests/test_params_vs_openmm.py` green).
-3. Implement, keeping energy functions pure and units in the OpenMM convention
+1. Implement, keeping energy functions pure and units in the OpenMM convention
    (nm / ps / amu / kJ/mol / e -- see `src/mdfs/constants.py`).
-4. Run the local gate before committing:
+1. Run the local gate before committing:
    ```bash
    make format lint mypy bandit test
    ```
    Slow / end-to-end tests: `make slow-test`.
-5. Use conventional-commit messages (`feat:`, `fix:`, `refactor:`, `test:`,
+1. Use conventional-commit messages (`feat:`, `fix:`, `refactor:`, `test:`,
    `docs:`, `chore:`). Never bypass hooks with `--no-verify`.
-6. Open a PR once CI is green.
+1. Open a PR once CI is green.
 
 ## Conventions
 

@@ -82,6 +82,13 @@ log.save_csv("poly_A_energy.csv")
 
 A complete walkthrough is in `notebooks/md_simulation.ipynb`.
 
+## Examples and benchmarks
+
+[`examples/`](examples) has runnable scripts covering each configuration — NVE/NVT,
+vacuum/periodic, minimization (see [`examples/README.md`](examples/README.md)).
+[`benchmarks/`](benchmarks) measures throughput and size scaling
+(see [`benchmarks/README.md`](benchmarks/README.md)).
+
 ## Layout
 
 ```
@@ -106,6 +113,10 @@ OpenMM/Amber units throughout: length **nm**, time **ps**, mass **amu**, energy
 - **No bond constraints.** Hydrogens are integrated explicitly, so use a small
   timestep (e.g. `dt = 0.0005 ps`). The default pair list is static all-pairs,
   appropriate for the small systems mdfs targets.
+- **Small-system scope.** mdfs is a differentiable teaching/research engine, not a
+  large-scale production code. The all-pairs nonbonded loop is O(N^2) and the step
+  loop runs in Python, so it is practical for ~hundreds to ~1,000 atoms; see
+  [`benchmarks/`](benchmarks). For large or solvated systems use OpenMM/GROMACS.
 
 ## See also
 
