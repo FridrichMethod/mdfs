@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-21
+
+First tagged release: a runnable, validated, differentiable MD engine. `mdfs`
+simulates from a PDB end to end (add hydrogens -> assign Amber ff19SB -> minimize
+-> NVE/NVT, vacuum or periodic) with forces from `jax.grad`, validated against
+OpenMM to machine precision (minus CMAP). Small/medium-system scope; see the
+README "Limitations".
+
 ### Performance
 
 - **LINCS bond constraints** (`mdfs.constraints`: `setup_hbond_constraints`,
