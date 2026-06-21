@@ -26,19 +26,30 @@ it a *scatter*, which is far slower on GPU (see "Why the dense path" below).
 | NVE dense | 2,060 | 2,120,770 | 6,143 | 265 | 0.16 |
 | NVE dense | 5,150 | 13,258,675 | 1,725 | 74 | 0.58 |
 | NVT periodic dense | 103 | 5,253 | 9,411 | 407 | 0.11 |
-| NVT dense + HMR (2 fs) | 103 | 5,253 | 8,126 | 1,404 | 0.12 |
-| NVT dense + HMR (2 fs) | 2,060 | 2,120,770 | 6,111 | 1,056 | 0.16 |
+| NVT dense + HMR (2 fs) | 103 | 5,253 | 9,287 | 1,605 | 0.11 |
+| NVT dense + HMR (2 fs) | 2,060 | 2,120,770 | 6,068 | 1,049 | 0.16 |
+| NVT constrained (LINCS, 2 fs) | 103 | 5,253 | 6,467 | 1,118 | 0.15 |
+| NVT constrained + HMR (4 fs) | 103 | 5,253 | 9,458 | 3,269 | 0.11 |
 | NVE pair-list | 103 | 5,253 | 2,846 | 123 | 0.35 |
 | NVE pair-list | 515 | 132,355 | 151 | 6.5 | 6.6 |
 
 Dense vs pair-list speedup: **3.4× at 103 atoms, 55× at 515, ~2,600× at 2,060**
 (the pair-list path falls off as O(N²); at 2,060 atoms it is ~0.1 ns/day).
 
-**Hydrogen mass repartitioning (HMR)** (`mdfs.repartition_hydrogen_masses`) slows
-X-H stretches so dt = 2 fs is stable without constraints, a further ~3.5-4×:
-poly_A reaches **1,404 ns/day** and 2,060 atoms **1,056 ns/day**. End to end, the
-dense path + HMR is ~11× (103 atoms) to ~10,000× (2,060 atoms) faster than the
-original pair-list engine at 0.5 fs.
+**Larger timesteps.** Two ways to take a bigger step:
+
+- **HMR** (`mdfs.repartition_hydrogen_masses`) slows X-H stretches so dt = 2 fs is
+  stable without constraints (no per-step solver cost): poly_A **1,605 ns/day**,
+  2,060 atoms **1,049 ns/day**.
+- **LINCS H-bond constraints** (`mdfs.setup_hbond_constraints`) remove the X-H
+  stretch entirely → a robust **2 fs** (1,118 ns/day; the constraint solve adds
+  per-step cost, so at tiny N this trails HMR-2fs) and, combined with HMR, **4 fs**
+  → **3,269 ns/day** (the fastest; 4 fs is best with a thermostat — NVE drift is
+  elevated by the H-angle limit).
+
+End to end, dense + constraints + HMR at 4 fs is **~26×** faster at 103 atoms
+than the original pair-list engine at 0.5 fs (124 ns/day), and dense + HMR is
+**~10,000×** at 2,060 atoms (where the original was ~0.1 ns/day).
 
 ## Dense base system across device / precision (poly_A, 103 atoms, NVE)
 
@@ -70,6 +81,9 @@ thousand atoms. For larger or dilute/solvated systems, pass an O(N) neighbor lis
   scatter; the big win above.
 - **Hydrogen mass repartitioning — done.** `mdfs.repartition_hydrogen_masses`
   enables dt = 2 fs (~4×). See `examples/nvt_hmr.py`.
+- **LINCS bond constraints — done.** `mdfs.setup_hbond_constraints` + RATTLE
+  velocity-Verlet / constrained BAOAB give a robust 2 fs and (with HMR) 4 fs. See
+  `examples/nvt_constraints.py`.
 - **`lax.scan` loop — measured, not adopted.** Replacing the Python step loop with
   an on-device scan gave ~0.9× (no gain) on the dense path: async dispatch already
   hides per-step latency and the step is GPU-compute-bound, so scan only adds

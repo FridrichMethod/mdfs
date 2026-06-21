@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Performance
 
+- **LINCS bond constraints** (`mdfs.constraints`: `setup_hbond_constraints`,
+  `apply_position_constraint`/`apply_velocity_constraint`) with RATTLE
+  velocity-Verlet and constrained BAOAB. Constraining X-H bonds gives a robust
+  2 fs timestep, and 4 fs combined with HMR (~3,300 ns/day on poly_A). Non-iterative
+  4th-order matrix expansion + one length correction (JIT-friendly); temperature
+  uses `constrained_dof` = 3N - K. See `examples/nvt_constraints.py`.
 - **Hydrogen mass repartitioning** (`repartition_hydrogen_masses`) moves mass onto
   hydrogens so dt = 2 fs is stable without constraints, ~4x more ns/day (poly_A:
   ~400 -> ~1,400 ns/day). Mass-conserving; see `examples/nvt_hmr.py`.

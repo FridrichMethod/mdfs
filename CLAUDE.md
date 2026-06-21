@@ -65,9 +65,13 @@ tests/            mirrors src/ (+ regressions/ for the poly_A e2e)
   than scatters (fast on GPU, O(N^2) memory). Only switch to the pair-list path
   (pass `pairs=`) for large/dilute systems; never reintroduce a scatter-based
   default. See `benchmarks/`.
-- For a larger timestep (dt = 2 fs), apply `repartition_hydrogen_masses` to the
-  masses before integrating. `lax.scan` over steps was measured and *not* adopted
-  (no speedup on the dense path); don't re-add it.
+- For a larger timestep: `repartition_hydrogen_masses` (HMR, dt = 2 fs) and/or
+  LINCS bond constraints (`setup_hbond_constraints` + `constraints=` on the
+  integrators; dt = 2 fs, or 4 fs with HMR). Constraints live in the integrator
+  (RATTLE / constrained BAOAB), not the energy, so autodiff forces are unaffected;
+  remember to use the reduced bonded set and `constrained_dof` for temperature.
+  `lax.scan` over steps was measured and *not* adopted (no speedup on the dense
+  path); don't re-add it.
 
 ## Correctness bar
 
