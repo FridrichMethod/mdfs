@@ -113,8 +113,9 @@ OpenMM/Amber units throughout: length **nm**, time **ps**, mass **amu**, energy
 - **Timestep.** Unconstrained, use a small timestep (`dt = 0.0005 ps`). For larger
   steps: hydrogen mass repartitioning (`mdfs.repartition_hydrogen_masses`) runs at
   `dt = 0.002 ps`, or LINCS H-bond constraints (`mdfs.setup_hbond_constraints`,
-  RATTLE/constrained-BAOAB) give a robust `dt = 0.002 ps` and, with HMR,
-  `dt = 0.004 ps` (~8× faster). See `examples/nvt_hmr.py` and
+  RATTLE/constrained-BAOAB) give a robust `dt = 0.002 ps` and, combined with HMR,
+  `dt = 0.004 ps` (the fastest configuration; see `benchmarks/`). With HMR, pass the
+  pre-HMR masses as `selection_masses`. See `examples/nvt_hmr.py` and
   `examples/nvt_constraints.py`.
 - **Small/medium-system scope.** Forces come from `jax.grad` of the energy. The
   default **dense (N, N)** nonbonded path makes that gradient a fast GPU reduction

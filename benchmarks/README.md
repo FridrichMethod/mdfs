@@ -26,10 +26,10 @@ it a *scatter*, which is far slower on GPU (see "Why the dense path" below).
 | NVE dense | 2,060 | 2,120,770 | 6,143 | 265 | 0.16 |
 | NVE dense | 5,150 | 13,258,675 | 1,725 | 74 | 0.58 |
 | NVT periodic dense | 103 | 5,253 | 9,411 | 407 | 0.11 |
-| NVT dense + HMR (2 fs) | 103 | 5,253 | 9,287 | 1,605 | 0.11 |
-| NVT dense + HMR (2 fs) | 2,060 | 2,120,770 | 6,068 | 1,049 | 0.16 |
-| NVT constrained (LINCS, 2 fs) | 103 | 5,253 | 6,467 | 1,118 | 0.15 |
-| NVT constrained + HMR (4 fs) | 103 | 5,253 | 9,458 | 3,269 | 0.11 |
+| NVT dense + HMR (2 fs) | 103 | 5,253 | 9,368 | 1,619 | 0.11 |
+| NVT dense + HMR (2 fs) | 2,060 | 2,120,770 | 6,356 | 1,098 | 0.16 |
+| NVT constrained (LINCS, 2 fs) | 103 | 5,253 | 6,374 | 1,101 | 0.16 |
+| NVT constrained + HMR (4 fs) | 103 | 5,253 | 6,423 | 2,220 | 0.16 |
 | NVE pair-list | 103 | 5,253 | 2,846 | 123 | 0.35 |
 | NVE pair-list | 515 | 132,355 | 151 | 6.5 | 6.6 |
 
@@ -42,12 +42,13 @@ Dense vs pair-list speedup: **3.4× at 103 atoms, 55× at 515, ~2,600× at 2,060
   stable without constraints (no per-step solver cost): poly_A **1,605 ns/day**,
   2,060 atoms **1,049 ns/day**.
 - **LINCS H-bond constraints** (`mdfs.setup_hbond_constraints`) remove the X-H
-  stretch entirely → a robust **2 fs** (1,118 ns/day; the constraint solve adds
+  stretch entirely → a robust **2 fs** (1,101 ns/day; the constraint solve adds
   per-step cost, so at tiny N this trails HMR-2fs) and, combined with HMR, **4 fs**
-  → **3,269 ns/day** (the fastest; 4 fs is best with a thermostat — NVE drift is
-  elevated by the H-angle limit).
+  → **2,220 ns/day** (the fastest; 4 fs is best with a thermostat — NVE drift is
+  elevated by the H-angle limit). With HMR, pass the **pre-HMR** masses as
+  `selection_masses` so the inflated H masses are still detected.
 
-End to end, dense + constraints + HMR at 4 fs is **~26×** faster at 103 atoms
+End to end, dense + constraints + HMR at 4 fs is **~18×** faster at 103 atoms
 than the original pair-list engine at 0.5 fs (124 ns/day), and dense + HMR is
 **~10,000×** at 2,060 atoms (where the original was ~0.1 ns/day).
 

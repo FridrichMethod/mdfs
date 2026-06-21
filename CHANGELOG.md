@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format is based on
 - **LINCS bond constraints** (`mdfs.constraints`: `setup_hbond_constraints`,
   `apply_position_constraint`/`apply_velocity_constraint`) with RATTLE
   velocity-Verlet and constrained BAOAB. Constraining X-H bonds gives a robust
-  2 fs timestep, and 4 fs combined with HMR (~3,300 ns/day on poly_A). Non-iterative
+  2 fs timestep, and 4 fs combined with HMR (~2,200 ns/day on poly_A). Non-iterative
   4th-order matrix expansion + one length correction (JIT-friendly); temperature
   uses `constrained_dof` = 3N - K. See `examples/nvt_constraints.py`.
 - **Hydrogen mass repartitioning** (`repartition_hydrogen_masses`) moves mass onto
@@ -26,6 +26,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **HMR + LINCS no longer silently selects zero constraints.** Hydrogen detection
+  keyed off the integration masses, so HMR-inflated H (3.024 amu) exceeded the
+  threshold and no bonds were constrained. `setup_hbond_constraints` now takes
+  `selection_masses` (pass the pre-HMR masses); `select_hbond_constraints` warns
+  when it finds no hydrogen bonds.
+- **Dihedral force is finite at exact collinearity** (unnormalized Blondel-Karplus
+  with an `atan2` degeneracy guard; previously `atan2(0,0)` produced NaN forces).
+- **Neighbor-list rebuild trigger uses the minimum image**, so a periodic box-face
+  crossing no longer forces a spurious O(N^2) rebuild every step.
+- **Constraint-aware reporting/sampling.** `EnergyLogger` accepts `constraints` to
+  use `3N-K` dof; `maxwell_boltzmann_velocities` accepts `constraints`/`positions`
+  to project the initial velocities; LJ cutoff is energy-shifted by default.
 - **Force-field loading now works.** `params.py` was rewritten to read
   fully-resolved parameters from `ForceField.createSystem` via OpenMM's public
   API instead of reverse-engineering private internals (which were incompatible
