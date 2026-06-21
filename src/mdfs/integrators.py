@@ -17,6 +17,11 @@ import jax.numpy as jnp
 from jax import grad, jit
 
 from mdfs.constants import BOLTZMANN_KJ_PER_MOL_K
+from mdfs.constraints import (
+    ConstraintSet,
+    apply_position_constraint,
+    apply_velocity_constraint,
+)
 from mdfs.types import EnergyFn, ShiftFn
 
 
@@ -63,8 +68,13 @@ def velocity_verlet(
     shift_fn: ShiftFn,
     dt: float,
     mass: jax.Array | float,
+    constraints: ConstraintSet | None = None,
 ) -> Callable[[State], State]:
-    """Velocity-Verlet (NVE) stepper. Returns ``step(state) -> state``."""
+    """Velocity-Verlet (NVE) stepper. Returns ``step(state) -> state``.
+
+    With ``constraints``, this is RATTLE: positions are projected onto the
+    constraint manifold after the drift and velocities after the final kick.
+    """
     force_fn = grad(energy_fn)
 
     @jit
@@ -73,9 +83,16 @@ def velocity_verlet(
         m = _as_col(mass, R)
         F = -force_fn(R)
         v_half = V + 0.5 * dt * F / m
-        r_new = shift_fn(R, v_half * dt)
+        r_unc = shift_fn(R, v_half * dt)
+        if constraints is None:
+            r_new = r_unc
+        else:
+            r_new = apply_position_constraint(R, r_unc, constraints)
+            v_half = v_half + (r_new - r_unc) / dt  # RATTLE position-correction velocity
         f_new = -force_fn(r_new)
         v_new = v_half + 0.5 * dt * f_new / m
+        if constraints is not None:
+            v_new = apply_velocity_constraint(r_new, v_new, constraints)
         return State(r_new, v_new, box, t + dt)
 
     return step
@@ -96,15 +113,29 @@ def langevin_baoab(
     dt: float,
     mass: jax.Array | float,
     params: LangevinParams,
+    constraints: ConstraintSet | None = None,
 ) -> Callable[[State, jax.Array], tuple[State, jax.Array]]:
     """BAOAB Langevin (NVT) stepper. Returns ``step(state, key) -> (state, key)``.
 
     The O step is the exact Ornstein-Uhlenbeck velocity update
-    ``V <- c V + sqrt((1 - c^2) kT / m) xi`` with ``c = exp(-gamma dt)``.
+    ``V <- c V + sqrt((1 - c^2) kT / m) xi`` with ``c = exp(-gamma dt)``. With
+    ``constraints`` this is constrained (g-)BAOAB: positions are projected after
+    each half-drift and velocities after each velocity update.
     """
     force_fn = grad(energy_fn)
     gamma, temp, kB = params.gamma, params.temperature, params.kB
     c = jnp.exp(-gamma * dt)
+    half = 0.5 * dt
+
+    def drift(r: jax.Array, v: jax.Array) -> tuple[jax.Array, jax.Array]:
+        r_unc = shift_fn(r, half * v)
+        if constraints is None:
+            return r_unc, v
+        r_new = apply_position_constraint(r, r_unc, constraints)
+        return r_new, v + (r_new - r_unc) / half  # RATTLE position-correction velocity
+
+    def vconstrain(r: jax.Array, v: jax.Array) -> jax.Array:
+        return v if constraints is None else apply_velocity_constraint(r, v, constraints)
 
     @jit
     def step(state: State, key: jax.Array) -> tuple[State, jax.Array]:
@@ -112,14 +143,12 @@ def langevin_baoab(
         m = _as_col(mass, R)
         sigma = jnp.sqrt((1.0 - c * c) * kB * temp / m)
 
-        F = -force_fn(R)
-        V = V + 0.5 * dt * F / m  # B
-        R = shift_fn(R, 0.5 * dt * V)  # A
+        V = vconstrain(R, V + half * -force_fn(R) / m)  # B
+        R, V = drift(R, V)  # A
         key, sub = jax.random.split(key)  # O
-        V = c * V + sigma * jax.random.normal(sub, V.shape)
-        R = shift_fn(R, 0.5 * dt * V)  # A
-        F = -force_fn(R)
-        V = V + 0.5 * dt * F / m  # B
+        V = vconstrain(R, c * V + sigma * jax.random.normal(sub, V.shape))
+        R, V = drift(R, V)  # A
+        V = vconstrain(R, V + half * -force_fn(R) / m)  # B
         return State(R, V, box, t + dt), key
 
     return step

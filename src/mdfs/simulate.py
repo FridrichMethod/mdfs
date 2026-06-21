@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 
 from mdfs.constants import BOLTZMANN_KJ_PER_MOL_K
+from mdfs.constraints import ConstraintSet
 from mdfs.energy import BondedSet, NonbondedSet, total_energy_fn
 from mdfs.integrators import (
     LangevinParams,
@@ -57,10 +58,15 @@ def simulate_nve(
     nonbonded: NonbondedSet,
     dt: float,
     mass: jax.Array | float,
+    constraints: ConstraintSet | None = None,
 ) -> tuple[State, Callable[[State], State]]:
-    """Build ``(state, step_fn)`` for an NVE (velocity-Verlet) simulation."""
+    """Build ``(state, step_fn)`` for an NVE (velocity-Verlet / RATTLE) simulation.
+
+    Pass ``constraints`` (and a ``bonded`` set with those bonds removed, e.g. via
+    :func:`mdfs.setup_hbond_constraints`) to constrain bonds for a larger timestep.
+    """
     energy_fn, shift_fn, sim_box = make_energy_fn(box, bonded, nonbonded)
-    step_fn = velocity_verlet(energy_fn, shift_fn, dt, mass)
+    step_fn = velocity_verlet(energy_fn, shift_fn, dt, mass, constraints=constraints)
     return State(R=R0, V=V0, box=sim_box, t=0.0), step_fn
 
 
@@ -75,11 +81,16 @@ def simulate_langevin(
     gamma: float,
     temperature: float,
     kB: float = BOLTZMANN_KJ_PER_MOL_K,
+    constraints: ConstraintSet | None = None,
 ) -> tuple[State, Callable[[State, jax.Array], tuple[State, jax.Array]]]:
-    """Build ``(state, step_fn)`` for a Langevin (BAOAB, NVT) simulation."""
+    """Build ``(state, step_fn)`` for a Langevin (BAOAB, NVT) simulation.
+
+    Pass ``constraints`` (with a matching reduced ``bonded`` set) to constrain
+    bonds for a larger timestep; see :func:`mdfs.setup_hbond_constraints`.
+    """
     energy_fn, shift_fn, sim_box = make_energy_fn(box, bonded, nonbonded)
     params = LangevinParams(gamma=gamma, temperature=temperature, kB=kB)
-    step_fn = langevin_baoab(energy_fn, shift_fn, dt, mass, params)
+    step_fn = langevin_baoab(energy_fn, shift_fn, dt, mass, params, constraints=constraints)
     return State(R=R0, V=V0, box=sim_box, t=0.0), step_fn
 
 
