@@ -146,6 +146,40 @@ def main() -> None:
         sps = throughput(step, st, max(200, args.steps // m), key=jax.random.PRNGKey(3))
         print(fmt(f"NVT dense+HMR 2fs x{m}", n, n * (n - 1) // 2, sps, dt=0.002))
 
+    # LINCS H-bond constraints: dt = 2 fs, and 4 fs combined with HMR.
+    for dt, use_hmr, label in [
+        (0.002, False, "NVT constr 2fs"),
+        (0.004, True, "NVT constr+HMR 4fs"),
+    ]:
+        sp = base
+        n = sp.n_atoms
+        masses = mdfs.repartition_hydrogen_masses(sp.masses, sp.bonds) if use_hmr else sp.masses
+        mass = jnp.asarray(masses)
+        nb = mdfs.to_nonbonded_set(sp)
+        cset, bonded = mdfs.setup_hbond_constraints(
+            sp.bonds, sp.bond_r0, masses, mdfs.to_bonded_set(sp), n
+        )
+        R0 = mdfs.apply_position_constraint(
+            jnp.asarray(sp.positions), jnp.asarray(sp.positions), cset
+        )
+        V0 = mdfs.apply_velocity_constraint(
+            R0, mdfs.maxwell_boltzmann_velocities(jax.random.PRNGKey(0), mass, 300.0, n), cset
+        )
+        st, step = mdfs.simulate_langevin(
+            R0,
+            V0,
+            None,
+            bonded,
+            nb,
+            dt=dt,
+            mass=mass,
+            gamma=10.0,
+            temperature=300.0,
+            constraints=cset,
+        )
+        sps = throughput(step, st, 2000, key=jax.random.PRNGKey(4))
+        print(fmt(label, n, n * (n - 1) // 2, sps, dt=dt))
+
     # Periodic (PBC + DSF + LJ cutoff), dense path.
     sp = base
     n = sp.n_atoms
