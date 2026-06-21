@@ -52,6 +52,21 @@ def test_remove_constrained_bonds(poly_a_params):
     assert reduced.bonds.shape[0] == bonded.bonds.shape[0] - pairs.shape[0]
 
 
+def test_hmr_constraints_need_pre_hmr_selection_masses(poly_a_params):
+    # Regression: HMR inflates H mass above the selection threshold, so selecting with
+    # the integration (HMR) masses finds ZERO constraints; pre-HMR selection_masses fixes it.
+    sp = poly_a_params
+    bonded = mdfs.to_bonded_set(sp)
+    hmr = mdfs.repartition_hydrogen_masses(sp.masses, sp.bonds)
+    bad, _ = C.setup_hbond_constraints(sp.bonds, sp.bond_r0, hmr, bonded, sp.n_atoms)
+    assert bad.pairs.shape[0] == 0  # the silent-no-op the review caught
+    cset, _ = C.setup_hbond_constraints(
+        sp.bonds, sp.bond_r0, hmr, bonded, sp.n_atoms, selection_masses=sp.masses
+    )
+    assert cset.pairs.shape[0] == 52  # all H-bonds; coupling still uses HMR masses
+    assert float(1.0 / max(cset.w_a.max(), cset.w_b.max())) == pytest.approx(3.024, abs=0.01)
+
+
 def test_position_projection_restores_bonds(constrained):
     _sp, cset, _bonded, _nb, _energy_fn, R0 = constrained
     target = np.asarray(cset.lengths)
@@ -72,6 +87,31 @@ def test_velocity_projection_removes_along_bond(constrained):
     u /= np.linalg.norm(u, axis=1, keepdims=True)
     along = np.sum(u * (Vc[pairs[:, 0]] - Vc[pairs[:, 1]]), axis=1)
     assert np.max(np.abs(along)) < 5e-5
+
+
+def test_maxwell_boltzmann_respects_constraints(constrained):
+    sp, cset, _bonded, _nb, _efn, R0 = constrained
+    mass = jnp.asarray(sp.masses)
+    v = mdfs.maxwell_boltzmann_velocities(
+        jax.random.PRNGKey(0), mass, 300.0, sp.n_atoms, constraints=cset, positions=R0
+    )
+    pairs = np.asarray(cset.pairs)
+    vv = np.asarray(v)
+    u = np.asarray(R0)[pairs[:, 0]] - np.asarray(R0)[pairs[:, 1]]
+    u /= np.linalg.norm(u, axis=1, keepdims=True)
+    along = np.sum(u * (vv[pairs[:, 0]] - vv[pairs[:, 1]]), axis=1)
+    assert np.max(np.abs(along)) < 5e-5
+
+
+def test_energy_logger_uses_constraint_dof(constrained):
+    sp, cset, _bonded, _nb, energy_fn, R0 = constrained
+    from mdfs.integrators import State
+
+    state = State(R=R0, V=jnp.ones((sp.n_atoms, 3)), box=jnp.zeros(3), t=0.0)
+    log = mdfs.EnergyLogger(energy_fn, sp.masses, constraints=cset, log_to_logger=False)
+    log(0, state)
+    expected = float(mdfs.temperature(state.V, sp.masses, n_dof=mdfs.constrained_dof(cset)))
+    assert log.records[0]["temperature_K"] == pytest.approx(expected)
 
 
 def test_constrained_nve_holds_bonds_at_2fs(constrained):

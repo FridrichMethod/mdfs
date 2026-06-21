@@ -69,6 +69,28 @@ def test_dense_and_pairlist_agree(poly_a_params):
     assert np.max(np.abs(f_dense - f_pairs)) < 1e-6
 
 
+def test_dense_and_pairlist_agree_periodic_cutoff(poly_a_params):
+    """Dense == pair-list with PBC + LJ cutoff + DSF + real (1-2/1-3/1-4) exclusions."""
+    from mdfs.energy import DSFParams
+
+    sp = poly_a_params
+    side = float(np.ptp(sp.positions, axis=0).max()) + 3.0
+    box = jnp.array([side, side, side])
+    r_cut = side / 2.0 - 0.1
+    R = jnp.asarray(sp.positions - sp.positions.mean(axis=0) + side / 2.0)
+    disp, _ = mdfs.periodic(box)
+    bonded = mdfs.to_bonded_set(sp)
+    dsf = DSFParams(alpha=2.0, r_cut=r_cut)
+    e_dense = mdfs.total_energy_fn(disp, bonded, mdfs.to_nonbonded_set(sp, r_cut_lj=r_cut, dsf=dsf))
+    e_pairs = mdfs.total_energy_fn(
+        disp, bonded, mdfs.to_nonbonded_set(sp, mdfs.all_pairs(sp.n_atoms), r_cut_lj=r_cut, dsf=dsf)
+    )
+    assert float(e_dense(R)) == pytest.approx(float(e_pairs(R)), rel=1e-9)
+    f_dense = np.array(-jax.grad(e_dense)(R))
+    f_pairs = np.array(-jax.grad(e_pairs)(R))
+    assert np.max(np.abs(f_dense - f_pairs)) < 1e-6
+
+
 def test_bonded_terms_match_openmm(reference, mdfs_pieces):
     from mdfs import energy
 

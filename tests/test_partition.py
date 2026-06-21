@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from mdfs.partition import all_pairs, neighbor_list
-from mdfs.space import free
+from mdfs.space import free, periodic
 
 
 def test_all_pairs_count_and_content():
@@ -36,3 +36,18 @@ def test_neighbor_list_update_keeps_when_static():
     nbrs = fns.allocate(R)
     nbrs2 = fns.update(R, nbrs)  # no movement -> unchanged
     assert np.array_equal(np.array(nbrs.pairs), np.array(nbrs2.pairs))
+
+
+def test_neighbor_list_no_spurious_rebuild_on_pbc_wrap():
+    # An atom crossing a box face wraps by ~L in raw coords but moves little under MIC;
+    # the rebuild trigger must use MIC so it does not rebuild every boundary crossing.
+    box = jnp.array([3.0, 3.0, 3.0])
+    disp, shift = periodic(box)
+    fns = neighbor_list(disp, r_cut=0.8, skin=0.4)  # rebuild threshold = 0.2 nm
+    R = jnp.array([[0.1, 1.5, 1.5], [1.5, 1.5, 1.5]])
+    nbrs = fns.allocate(R)
+    R2 = shift(
+        R, jnp.array([[-0.15, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    )  # wraps to ~2.95; MIC move 0.15 nm
+    nbrs2 = fns.update(R2, nbrs)
+    assert np.array_equal(np.asarray(nbrs2.ref_R), np.asarray(R))  # no spurious rebuild

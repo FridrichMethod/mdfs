@@ -174,6 +174,42 @@ def test_nonbonded_cutoff_excludes_far_pairs():
     assert abs(float(energy.nonbonded_energy(near, nb, disp))) > 1e-6
 
 
+def test_dihedral_grad_finite_at_exact_collinearity():
+    # First three atoms exactly collinear -> n1 = 0; gradient must stay finite (not NaN).
+    R = jnp.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0]])
+    dih = jnp.array([[0, 1, 2, 3]])
+
+    def e(r):
+        return energy.torsion_energy(r, dih, jnp.array([2.0]), jnp.array([3.0]), jnp.array([0.0]))
+
+    assert np.all(np.isfinite(np.array(jax.grad(e)(R))))
+
+
+def test_lj_energy_shift_continuous_at_cutoff():
+    # Near the LJ well, shift_lj=True drives the energy to ~0 at the cutoff; False does not.
+    rc, sig, eps = 0.36, 0.3, 1.0
+    disp, _ = mdfs.free()
+
+    def nb(shift):
+        return energy.NonbondedSet(
+            types=jnp.arange(2),
+            q=jnp.zeros(2),
+            lj_params=energy.LJMixParams(jnp.array([eps, eps]), jnp.array([sig, sig])),
+            exclude_mask=jnp.zeros((2, 2), dtype=bool),
+            exc_pairs=jnp.zeros((0, 2), dtype=jnp.int32),
+            exc_qq=jnp.zeros(0),
+            exc_sigma=jnp.zeros(0),
+            exc_eps=jnp.zeros(0),
+            r_cut_lj=rc,
+            dsf=None,
+            shift_lj=shift,
+        )
+
+    R = jnp.array([[0.0, 0.0, 0.0], [rc - 1e-4, 0.0, 0.0]])  # just inside the cutoff
+    assert abs(float(energy.nonbonded_energy(R, nb(True), disp))) < 1e-2  # shifted ~ 0
+    assert abs(float(energy.nonbonded_energy(R, nb(False), disp))) > 0.1  # unshifted = LJ value
+
+
 def test_dense_nonbonded_cutoff_and_grad_finite():
     """Dense (N, N) path: cutoff masks far pairs and forces stay finite (no scatter)."""
     disp, _ = mdfs.free()
