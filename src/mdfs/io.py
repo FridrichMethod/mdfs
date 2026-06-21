@@ -18,6 +18,7 @@ import mdtraj as md
 import numpy as np
 
 from mdfs.constants import BOLTZMANN_KJ_PER_MOL_K
+from mdfs.constraints import ConstraintSet, constrained_dof
 from mdfs.integrators import EnergyFn, State, kinetic_energy, temperature
 from mdfs.types import StrPath
 
@@ -59,20 +60,29 @@ class TrajectoryRecorder:
 
 @dataclass
 class EnergyLogger:
-    """Record step, time, potential/kinetic energy, and temperature during a run."""
+    """Record step, time, potential/kinetic energy, and temperature during a run.
+
+    For a constrained run, pass ``constraints`` so temperature uses the correct
+    ``3N - K`` degrees of freedom (otherwise it defaults to ``3N`` and under-reports
+    T). An explicit ``n_dof`` overrides both.
+    """
 
     energy_fn: EnergyFn
     mass: jax.Array | float  # scalar or (N,) array, amu
     kB: float = BOLTZMANN_KJ_PER_MOL_K
     n_dof: int | None = None
+    constraints: ConstraintSet | None = None
     log_to_logger: bool = True
     records: list[dict[str, float]] = field(default_factory=list)
 
     def __call__(self, step: int, state: State) -> None:
         """Record energies/temperature for the current frame (callback form)."""
+        n_dof = self.n_dof
+        if n_dof is None and self.constraints is not None:
+            n_dof = constrained_dof(self.constraints)
         pe = float(self.energy_fn(state.R))
         ke = float(kinetic_energy(state.V, self.mass))
-        temp = float(temperature(state.V, self.mass, self.kB, self.n_dof))
+        temp = float(temperature(state.V, self.mass, self.kB, n_dof))
         rec = {
             "step": int(step),
             "time_ps": float(state.t),

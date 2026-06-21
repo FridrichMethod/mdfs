@@ -345,7 +345,7 @@ def to_nonbonded_set(
     k_e: float = ONE_4PI_EPS0,
     r_cut_lj: float | None = None,
     dsf: DSFParams | None = None,
-    shift_lj: bool = False,
+    shift_lj: bool = True,
 ) -> NonbondedSet:
     """Convert extracted parameters into a JAX :class:`~mdfs.energy.NonbondedSet`.
 

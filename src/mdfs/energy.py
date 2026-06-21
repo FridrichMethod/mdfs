@@ -69,9 +69,10 @@ def angle_energy(
 def dihedral_phi(R: jax.Array, dihedrals: jax.Array) -> jax.Array:
     """Signed dihedral angle phi for each ``(i, j, k, l)`` (Blondel-Karplus form).
 
-    The plane normals are normalized with a softened norm, so the gradient (and
-    hence the torsion force) stays finite for near-collinear geometries where a
-    normal vector nearly vanishes.
+    Uses unnormalized plane normals (``x`` and ``y`` carry the same scale, so the
+    ratio gives phi) with a guard so that at exact collinearity -- where a normal
+    vanishes and ``x = y = 0`` -- the gradient stays finite rather than NaN
+    (``atan2(0, 0)`` has an undefined gradient that would poison all forces).
     """
     i, j, k, m = dihedrals[:, 0], dihedrals[:, 1], dihedrals[:, 2], dihedrals[:, 3]
     b1 = R[j] - R[i]
@@ -79,12 +80,11 @@ def dihedral_phi(R: jax.Array, dihedrals: jax.Array) -> jax.Array:
     b3 = R[m] - R[k]
     n1 = jnp.cross(b1, b2)
     n2 = jnp.cross(b2, b3)
-    n1 = n1 / _safe_norm(n1, axis=1, keepdims=True)
-    n2 = n2 / _safe_norm(n2, axis=1, keepdims=True)
     b2_hat = b2 / _safe_norm(b2, axis=1, keepdims=True)
     m1 = jnp.cross(n1, b2_hat)
     x = jnp.sum(n1 * n2, axis=1)
     y = jnp.sum(m1 * n2, axis=1)
+    x = x + jnp.where(x * x + y * y < _EPS * _EPS, _EPS, 0.0)  # avoid atan2(0, 0)
     return jnp.arctan2(y, x)
 
 
@@ -204,6 +204,11 @@ class NonbondedSet(NamedTuple):
     atoms. Provide an explicit ``(Np, 2)`` pair list (e.g. from
     :func:`mdfs.partition.neighbor_list`) to use the O(N) pair-list path for
     larger systems.
+
+    ``shift_lj`` (default True) shifts the LJ energy to zero at ``r_cut_lj`` for
+    energy continuity. Note this removes only the energy jump, not the force
+    discontinuity at the cutoff; for strict NVE prefer the no-cutoff vacuum form or
+    a thermostat. (Ignored when ``r_cut_lj`` is None.)
     """
 
     types: jax.Array  # (N,) index into lj_params (= arange(N) for per-particle LJ)
@@ -217,7 +222,7 @@ class NonbondedSet(NamedTuple):
     k_e: float = ONE_4PI_EPS0
     r_cut_lj: float | None = None
     dsf: DSFParams | None = None
-    shift_lj: bool = False
+    shift_lj: bool = True
     pairs: jax.Array | None = None  # (Np, 2); None -> dense (N, N) path
 
 

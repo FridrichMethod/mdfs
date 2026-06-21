@@ -47,10 +47,17 @@ def _build_pairs(
     return pairs[r < r_list]
 
 
-@jax.jit
-def _max_displacement(R: jax.Array, ref_R: jax.Array) -> jax.Array:
-    """Largest per-particle displacement since the last neighbor rebuild."""
-    return jnp.max(jnp.linalg.norm(R - ref_R, axis=1))
+def _max_displacement(
+    R: jax.Array,
+    ref_R: jax.Array,
+    displacement_fn: Callable[[jax.Array, jax.Array], jax.Array],
+) -> jax.Array:
+    """Largest per-particle displacement since the last rebuild (minimum-image).
+
+    Uses ``displacement_fn`` so a periodic box-face crossing (which ``shift_fn``
+    wraps by ~L in raw coordinates) is not mistaken for a large displacement.
+    """
+    return jnp.max(jnp.linalg.norm(displacement_fn(ref_R, R), axis=1))
 
 
 def neighbor_list(
@@ -75,7 +82,7 @@ def neighbor_list(
         # The pruned pair list has a data-dependent length, so rebuilding is done
         # eagerly (outside jit). Drive jitted steppers with the returned pairs;
         # rebuild between steps in Python when atoms drift past half the skin.
-        if float(_max_displacement(R, nbrs.ref_R)) > 0.5 * nbrs.skin:
+        if float(_max_displacement(R, nbrs.ref_R, displacement_fn)) > 0.5 * nbrs.skin:
             return NeighborList(
                 pairs=_build_pairs(R, displacement_fn, nbrs.r_list),
                 ref_R=R,

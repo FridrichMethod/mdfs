@@ -160,7 +160,18 @@ def maxwell_boltzmann_velocities(
     temperature: float,
     n_atoms: int,
     kB: float = BOLTZMANN_KJ_PER_MOL_K,
+    constraints: ConstraintSet | None = None,
+    positions: jax.Array | None = None,
 ) -> jax.Array:
-    """Sample ``(N, 3)`` velocities from the Maxwell-Boltzmann distribution at ``temperature``."""
+    """Sample ``(N, 3)`` velocities from the Maxwell-Boltzmann distribution at ``temperature``.
+
+    For a constrained run, pass ``constraints`` and ``positions`` so the along-bond
+    components (which the constraints forbid) are projected out; otherwise the raw
+    sample carries ~kT in each of the K constraint directions and the initial
+    temperature (reported with ``3N - K`` dof) is overstated.
+    """
     m = jnp.broadcast_to(_as_col(mass, jnp.zeros((n_atoms, 1))), (n_atoms, 1))
-    return jax.random.normal(key, (n_atoms, 3)) * jnp.sqrt(kB * temperature / m)
+    v = jax.random.normal(key, (n_atoms, 3)) * jnp.sqrt(kB * temperature / m)
+    if constraints is not None and positions is not None:
+        v = apply_velocity_constraint(positions, v, constraints)
+    return v
