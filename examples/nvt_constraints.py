@@ -25,15 +25,22 @@ from mdfs.paths import REPO_ROOT
 def main() -> None:
     sp, _ = mdfs.system_params_from_pdb(REPO_ROOT / "assets" / "poly_A.pdb")
     nonbonded = mdfs.to_nonbonded_set(sp)
-    bonded = mdfs.to_bonded_set(sp)
     mass = jnp.asarray(sp.masses)
 
-    # Build H-bond constraints and drop those bonds from the harmonic term.
-    cset, bonded = mdfs.setup_hbond_constraints(sp.bonds, sp.bond_r0, sp.masses, bonded, sp.n_atoms)
-    energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
+    # Minimize with the FULL bonded energy so the X-H bonds sit at their equilibrium
+    # length (otherwise the unrestrained hydrogens drift and constraining them back
+    # would be a huge correction).
+    bonded_full = mdfs.to_bonded_set(sp)
+    full_energy_fn, _, _ = mdfs.make_energy_fn(None, bonded_full, nonbonded)
+    R0 = mdfs.minimize_energy(full_energy_fn, jnp.asarray(sp.positions), max_iter=500).positions
 
-    R0 = mdfs.minimize_energy(energy_fn, jnp.asarray(sp.positions), max_iter=500).positions
-    R0 = mdfs.apply_position_constraint(R0, R0, cset)  # satisfy constraints initially
+    # Build H-bond constraints, drop those bonds from the harmonic term, and project
+    # the relaxed structure onto the constraint manifold (a tiny correction).
+    cset, bonded = mdfs.setup_hbond_constraints(
+        sp.bonds, sp.bond_r0, sp.masses, bonded_full, sp.n_atoms
+    )
+    energy_fn, _, _ = mdfs.make_energy_fn(None, bonded, nonbonded)
+    R0 = mdfs.apply_position_constraint(R0, R0, cset)
     V0 = mdfs.apply_velocity_constraint(
         R0, mdfs.maxwell_boltzmann_velocities(jax.random.PRNGKey(0), mass, 300.0, sp.n_atoms), cset
     )
