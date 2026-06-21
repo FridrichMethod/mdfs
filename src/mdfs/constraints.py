@@ -13,6 +13,7 @@ differentiated, so it does not affect the autodiff forces.
 
 from __future__ import annotations
 
+import logging
 from typing import NamedTuple
 
 import jax
@@ -20,6 +21,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from mdfs.energy import BondedSet
+
+logger = logging.getLogger(__name__)
 
 _EPS = 1e-12
 
@@ -48,12 +51,24 @@ def select_hbond_constraints(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(pairs, lengths)`` for every bond involving a hydrogen.
 
-    A bond is selected if either atom is a hydrogen (mass < ``heavy_threshold``;
-    the loose default also catches HMR-inflated H masses). Lengths are the
-    force-field equilibrium bond lengths ``bond_r0``.
+    A bond is selected if either atom is a hydrogen (mass < ``heavy_threshold``).
+    Lengths are the force-field equilibrium bond lengths ``bond_r0``.
+
+    Important: hydrogen mass repartitioning inflates H masses above the default
+    threshold, so pass the **pre-HMR** masses here (``setup_hbond_constraints``
+    exposes ``selection_masses`` for exactly this).
     """
     is_h = masses < heavy_threshold
     mask = is_h[bonds[:, 0]] | is_h[bonds[:, 1]]
+    if bonds.size and not mask.any():
+        logger.warning(
+            "select_hbond_constraints found 0 hydrogen bonds among %d bonds "
+            "(min mass %.3f >= threshold %.3f). If hydrogen mass repartitioning was "
+            "applied, pass the pre-HMR masses for selection.",
+            len(bonds),
+            float(np.min(masses)),
+            heavy_threshold,
+        )
     return bonds[mask].astype(np.int64), bond_r0[mask].astype(np.float64)
 
 
@@ -113,14 +128,20 @@ def setup_hbond_constraints(
     bonded: BondedSet,
     n_atoms: int,
     order: int = 4,
+    selection_masses: np.ndarray | None = None,
 ) -> tuple[ConstraintSet, BondedSet]:
     """Build an H-bond constraint set and the matching reduced bonded set.
 
     Returns an H-bond :class:`ConstraintSet` plus a :class:`~mdfs.energy.BondedSet`
     with those bonds removed from the harmonic term (the constraint replaces them).
-    ``masses`` must be the integration masses (apply HMR first if used).
+
+    ``masses`` are the **integration** masses (used for the LINCS coupling; apply HMR
+    first if used). ``selection_masses`` (default: ``masses``) are used only to detect
+    hydrogens -- with HMR you must pass the **pre-HMR** masses here, otherwise the
+    inflated H masses exceed the detection threshold and no bonds are selected.
     """
-    pairs, lengths = select_hbond_constraints(bonds, bond_r0, masses)
+    sel = masses if selection_masses is None else selection_masses
+    pairs, lengths = select_hbond_constraints(bonds, bond_r0, sel)
     cset = make_constraint_set(pairs, lengths, masses, n_atoms, order=order)
     return cset, remove_constrained_bonds(bonded, pairs)
 

@@ -157,7 +157,7 @@ def main() -> None:
         mass = jnp.asarray(masses)
         nb = mdfs.to_nonbonded_set(sp)
         cset, bonded = mdfs.setup_hbond_constraints(
-            sp.bonds, sp.bond_r0, masses, mdfs.to_bonded_set(sp), n
+            sp.bonds, sp.bond_r0, masses, mdfs.to_bonded_set(sp), n, selection_masses=sp.masses
         )
         R0 = mdfs.apply_position_constraint(
             jnp.asarray(sp.positions), jnp.asarray(sp.positions), cset
