@@ -50,7 +50,7 @@ from mdfs.simulate import make_energy_fn, run, simulate_langevin, simulate_nve
 from mdfs.space import free, periodic, wrap
 from mdfs.utils import configure_logging
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Zhaoyang Li"
 __email__ = "zhaoyangli@stanford.edu"
 

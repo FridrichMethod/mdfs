@@ -5,6 +5,34 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-22
+
+Maintainability release: a consistency pass over numerical-softening handling and
+the value-type conventions. No behavior change — the energy/force outputs are
+identical (every new argument defaults to the previous value), and the OpenMM
+machine-precision validation suite is unchanged.
+
+### Changed
+
+- **Single `EPS` source of truth** (`mdfs.constants.EPS`). Every function that
+  applies a numerical-softening floor now takes an explicit `eps: float = EPS`
+  argument instead of a bare literal (e.g. `1e-12`) or a module global, across
+  `energy`, `constraints`, and `minimize`. Callers can override the floor per call.
+- **`eps` is threaded uniformly through the whole energy graph** (`bond_energy`,
+  `angle_energy`, `torsion_energy`, `dihedral_phi`, `lj_12_6`, `coulomb_plain`,
+  `coulomb_dsf_pair`, `exception_energy`, the dense/pair nonbonded paths, and
+  `total_energy_fn`), so one `eps` controls every floor; previously
+  `_nonbonded_dense` exposed an `eps` it did not fully apply.
+- The LJ soft-core floor fraction is now a named constant (`_LJ_FLOOR_FRAC`)
+  rather than a magic literal, and `k_e` defaults to `ONE_4PI_EPS0` on
+  `coulomb_plain`/`coulomb_dsf_pair` (matching `DSFParams`/`NonbondedSet`).
+
+### Documentation
+
+- Documented the NamedTuple-vs-dataclass convention (NamedTuple for pytree value
+  types in the differentiable core; frozen dataclass for host-side records/config)
+  and the single-`EPS` rule in `CLAUDE.md`.
+
 ## [0.1.0] - 2026-06-21
 
 First tagged release: a runnable, validated, differentiable MD engine. `mdfs`
