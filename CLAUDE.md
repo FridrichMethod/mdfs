@@ -56,8 +56,17 @@ tests/            mirrors src/ (+ regressions/ for the poly_A e2e)
 
 - Absolute imports only; `pathlib` over `os.path`; `logging.getLogger(__name__)`
   over `print` (CLI/notebooks call `configure_logging` once).
-- Type hints + Google-style docstrings on public functions; prefer immutable
-  dataclasses / NamedTuples for aggregates.
+- Type hints + Google-style docstrings on public functions.
+- **Aggregate types (deliberate split, do not unify):** `NamedTuple` for the JAX
+  value types that hold `jax.Array`s and flow through the differentiable/jitted
+  core as pytrees -- `State`, `BondedSet`, `NonbondedSet`, `LJMixParams`,
+  `DSFParams`, `ConstraintSet`. Frozen `dataclass` for host-side records/config
+  built once and never traced -- `SystemParams`, `MinimizationResult`,
+  `NeighborList(Fns)`, `LangevinParams` (mutable `dataclass` for the reporters).
+  `State` is the `jit` carry, so it MUST stay a NamedTuple (auto-registered pytree;
+  a plain dataclass is an opaque leaf and breaks tracing) -- don't convert it.
+- Numerical softening floor: one `EPS` in `constants.py`; functions that apply it
+  take an `eps: float = EPS` argument rather than hardcoding a literal.
 - Energy functions stay pure (`E(R) -> scalar`) so `jax.grad`/`jit` apply cleanly.
 - New parameters come from OpenMM's resolved `System`, never by re-parsing FFXML
   internals.
