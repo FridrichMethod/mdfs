@@ -25,6 +25,10 @@ from mdfs.constants import EPS as _EPS
 from mdfs.constants import ONE_4PI_EPS0
 from mdfs.types import DisplacementFn
 
+# Soft-core floor: LJ separations are clamped to this fraction of sigma so the
+# r**-12 term cannot overflow for catastrophic clashes (see ``lj_12_6``).
+_LJ_FLOOR_FRAC: float = 0.1
+
 
 def _safe_norm(
     x: jax.Array, axis: int = -1, keepdims: bool = False, eps: float = _EPS
@@ -38,15 +42,17 @@ def _safe_norm(
 # ---------------------------------------------------------------------------
 
 
-def bond_energy(R: jax.Array, bonds: jax.Array, k_r: jax.Array, r0: jax.Array) -> jax.Array:
+def bond_energy(
+    R: jax.Array, bonds: jax.Array, k_r: jax.Array, r0: jax.Array, eps: float = _EPS
+) -> jax.Array:
     """Harmonic bond energy ``0.5 * k_r * (r - r0)**2`` summed over bonds."""
     i, j = bonds[:, 0], bonds[:, 1]
-    r = _safe_norm(R[j] - R[i], axis=1)
+    r = _safe_norm(R[j] - R[i], axis=1, eps=eps)
     return 0.5 * jnp.sum(k_r * (r - r0) ** 2)
 
 
 def angle_energy(
-    R: jax.Array, angles: jax.Array, k_theta: jax.Array, theta0: jax.Array
+    R: jax.Array, angles: jax.Array, k_theta: jax.Array, theta0: jax.Array, eps: float = _EPS
 ) -> jax.Array:
     """Harmonic angle energy ``0.5 * k * (theta - theta0)**2`` summed over angles.
 
@@ -58,7 +64,7 @@ def angle_energy(
     v1 = R[i] - R[j]
     v2 = R[k] - R[j]
     cross = jnp.cross(v1, v2)
-    y = _safe_norm(cross, axis=1)
+    y = _safe_norm(cross, axis=1, eps=eps)
     x = jnp.sum(v1 * v2, axis=1)
     theta = jnp.arctan2(y, x)
     return 0.5 * jnp.sum(k_theta * (theta - theta0) ** 2)
@@ -92,13 +98,14 @@ def torsion_energy(
     periodicity: jax.Array,
     k: jax.Array,
     phase: jax.Array,
+    eps: float = _EPS,
 ) -> jax.Array:
     """Periodic torsion energy ``sum k * (1 + cos(n * phi - phase))`` over entries.
 
     Each row is a single Fourier term; multi-term torsions appear as multiple
     rows sharing the same atom quadruplet (matching OpenMM's representation).
     """
-    phi = dihedral_phi(R, dihedrals)
+    phi = dihedral_phi(R, dihedrals, eps=eps)
     return jnp.sum(k * (1.0 + jnp.cos(periodicity * phi - phase)))
 
 
@@ -132,12 +139,14 @@ def lj_12_6(eps_ij: jax.Array, sig_ij: jax.Array, r: jax.Array, eps: float = _EP
     contact, keeping minimization from a clashy start finite. ``eps`` is the
     numerical floor (distinct from the LJ well depth ``eps_ij``).
     """
-    r_safe = jnp.maximum(r, 0.1 * sig_ij + eps)
+    r_safe = jnp.maximum(r, _LJ_FLOOR_FRAC * sig_ij + eps)
     sr6 = (sig_ij / r_safe) ** 6
     return 4.0 * eps_ij * (sr6 * sr6 - sr6)
 
 
-def coulomb_plain(qiqj: jax.Array, r: jax.Array, k_e: float, eps: float = _EPS) -> jax.Array:
+def coulomb_plain(
+    qiqj: jax.Array, r: jax.Array, k_e: float = ONE_4PI_EPS0, eps: float = _EPS
+) -> jax.Array:
     """Unscreened Coulomb energy ``k_e * q_i q_j / r``."""
     return k_e * qiqj / (r + eps)
 
@@ -155,7 +164,12 @@ class DSFParams(NamedTuple):
 
 
 def coulomb_dsf_pair(
-    qiqj: jax.Array, r: jax.Array, alpha: float, r_cut: float, k_e: float, eps: float = _EPS
+    qiqj: jax.Array,
+    r: jax.Array,
+    alpha: float,
+    r_cut: float,
+    k_e: float = ONE_4PI_EPS0,
+    eps: float = _EPS,
 ) -> jax.Array:
     """Damped Shifted-Force (Fennell-Gezelter) Coulomb for a pair."""
     inv_r = 1.0 / (r + eps)
@@ -229,6 +243,7 @@ def exception_energy(
     R: jax.Array,
     nb: NonbondedSet,
     displacement_fn: DisplacementFn,
+    eps: float = _EPS,
 ) -> jax.Array:
     """Energy of nonbonded exception (1-4) pairs using their own parameters.
 
@@ -238,25 +253,30 @@ def exception_energy(
     if nb.exc_pairs.shape[0] == 0:
         return jnp.asarray(0.0)
     i, j = nb.exc_pairs[:, 0], nb.exc_pairs[:, 1]
-    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1)
-    e_lj = lj_12_6(nb.exc_eps, nb.exc_sigma, r)
-    e_coul = coulomb_plain(nb.exc_qq, r, nb.k_e)
+    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1, eps=eps)
+    e_lj = lj_12_6(nb.exc_eps, nb.exc_sigma, r, eps=eps)
+    e_coul = coulomb_plain(nb.exc_qq, r, nb.k_e, eps=eps)
     return jnp.sum(e_lj + e_coul)
 
 
 def _pair_lj_coulomb(
-    r: jax.Array, eps_ij: jax.Array, sig_ij: jax.Array, qiqj: jax.Array, nb: NonbondedSet
+    r: jax.Array,
+    eps_ij: jax.Array,
+    sig_ij: jax.Array,
+    qiqj: jax.Array,
+    nb: NonbondedSet,
+    eps: float = _EPS,
 ) -> jax.Array:
     """LJ + Coulomb energy for a batch of pairs at distances ``r`` (cutoffs applied)."""
-    e_lj = lj_12_6(eps_ij, sig_ij, r)
+    e_lj = lj_12_6(eps_ij, sig_ij, r, eps=eps)
     if nb.r_cut_lj is not None:
         if nb.shift_lj:
-            e_lj = e_lj - lj_12_6(eps_ij, sig_ij, jnp.full_like(r, nb.r_cut_lj))
+            e_lj = e_lj - lj_12_6(eps_ij, sig_ij, jnp.full_like(r, nb.r_cut_lj), eps=eps)
         e_lj = jnp.where(r < nb.r_cut_lj, e_lj, 0.0)
     if nb.dsf is None:
-        e_coul = coulomb_plain(qiqj, r, nb.k_e)
+        e_coul = coulomb_plain(qiqj, r, nb.k_e, eps=eps)
     else:
-        e_coul = coulomb_dsf_pair(qiqj, r, nb.dsf.alpha, nb.dsf.r_cut, nb.dsf.k_e)
+        e_coul = coulomb_dsf_pair(qiqj, r, nb.dsf.alpha, nb.dsf.r_cut, nb.dsf.k_e, eps=eps)
         e_coul = jnp.where(r < nb.dsf.r_cut, e_coul, 0.0)
     return e_lj + e_coul
 
@@ -277,28 +297,31 @@ def _nonbonded_dense(
     sig_ij = 0.5 * (lj_sig[:, None] + lj_sig[None, :])
     qiqj = nb.q[:, None] * nb.q[None, :]
 
-    e = _pair_lj_coulomb(r, eps_ij, sig_ij, qiqj, nb)
+    e = _pair_lj_coulomb(r, eps_ij, sig_ij, qiqj, nb, eps=eps)
     keep = (~nb.exclude_mask) & (~jnp.eye(n, dtype=bool))
     e_main = 0.5 * jnp.sum(jnp.where(keep, e, 0.0))  # each unordered pair counted twice
-    return e_main + exception_energy(R, nb, displacement_fn)
+    return e_main + exception_energy(R, nb, displacement_fn, eps=eps)
 
 
-def _nonbonded_pairs(R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn) -> jax.Array:
+def _nonbonded_pairs(
+    R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn, eps: float = _EPS
+) -> jax.Array:
     """Pair-list ``(Np, 2)`` LJ + Coulomb (O(N) with a neighbor list; grad scatters)."""
     assert nb.pairs is not None
     i, j = nb.pairs[:, 0], nb.pairs[:, 1]
-    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1)
+    r = _safe_norm(displacement_fn(R[i], R[j]), axis=1, eps=eps)
     keep = ~nb.exclude_mask[i, j]
     eps_ij, sig_ij = lj_mixed_eps_sigma(nb.types[i], nb.types[j], nb.lj_params)
-    e = _pair_lj_coulomb(r, eps_ij, sig_ij, nb.q[i] * nb.q[j], nb)
+    e = _pair_lj_coulomb(r, eps_ij, sig_ij, nb.q[i] * nb.q[j], nb, eps=eps)
     e_main = jnp.sum(jnp.where(keep, e, 0.0))
-    return e_main + exception_energy(R, nb, displacement_fn)
+    return e_main + exception_energy(R, nb, displacement_fn, eps=eps)
 
 
 def nonbonded_energy(
     R: jax.Array,
     nb: NonbondedSet,
     displacement_fn: DisplacementFn,
+    eps: float = _EPS,
 ) -> jax.Array:
     """LJ + Coulomb with exclusions and the exception term.
 
@@ -306,8 +329,8 @@ def nonbonded_energy(
     pair-list path otherwise. Both produce identical energies and forces.
     """
     if nb.pairs is None:
-        return _nonbonded_dense(R, nb, displacement_fn)
-    return _nonbonded_pairs(R, nb, displacement_fn)
+        return _nonbonded_dense(R, nb, displacement_fn, eps=eps)
+    return _nonbonded_pairs(R, nb, displacement_fn, eps=eps)
 
 
 # ---------------------------------------------------------------------------
@@ -315,12 +338,14 @@ def nonbonded_energy(
 # ---------------------------------------------------------------------------
 
 
-def bonded_energy(R: jax.Array, bonded: BondedSet) -> jax.Array:
+def bonded_energy(R: jax.Array, bonded: BondedSet, eps: float = _EPS) -> jax.Array:
     """Sum of bond, angle, and torsion energies."""
     return (
-        bond_energy(R, bonded.bonds, bonded.k_r, bonded.r0)
-        + angle_energy(R, bonded.angles, bonded.k_theta, bonded.theta0)
-        + torsion_energy(R, bonded.torsions, bonded.periodicity, bonded.torsion_k, bonded.phase)
+        bond_energy(R, bonded.bonds, bonded.k_r, bonded.r0, eps=eps)
+        + angle_energy(R, bonded.angles, bonded.k_theta, bonded.theta0, eps=eps)
+        + torsion_energy(
+            R, bonded.torsions, bonded.periodicity, bonded.torsion_k, bonded.phase, eps=eps
+        )
     )
 
 
@@ -328,10 +353,16 @@ def total_energy_fn(
     displacement_fn: DisplacementFn,
     bonded: BondedSet,
     nonbonded: NonbondedSet,
+    eps: float = _EPS,
 ) -> Callable[[jax.Array], jax.Array]:
-    """Return a pure ``E(R)`` summing bonded and nonbonded energy (grad/jit-friendly)."""
+    """Return a pure ``E(R)`` summing bonded and nonbonded energy (grad/jit-friendly).
+
+    ``eps`` (the numerical softening floor) is threaded uniformly into every term.
+    """
 
     def energy(R: jax.Array) -> jax.Array:
-        return bonded_energy(R, bonded) + nonbonded_energy(R, nonbonded, displacement_fn)
+        return bonded_energy(R, bonded, eps=eps) + nonbonded_energy(
+            R, nonbonded, displacement_fn, eps=eps
+        )
 
     return energy
