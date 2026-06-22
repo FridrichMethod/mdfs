@@ -22,3 +22,8 @@ BOLTZMANN_KJ_PER_MOL_K: Final[float] = 0.00831446261815324
 # Coulomb constant 1 / (4 * pi * eps0) in kJ * nm / (mol * e**2).
 # This is OpenMM's ``ONE_4PI_EPS0`` and converts q_i q_j / r (e**2 / nm) to kJ/mol.
 ONE_4PI_EPS0: Final[float] = 138.935456
+
+# Numerical softening floor (nm) used to keep norms, divisions, and atan2 gradients
+# finite at degenerate geometries. The single source of truth for the per-function
+# ``eps`` defaults; not a physical quantity.
+EPS: Final[float] = 1e-12

@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from jax import grad, jit
 from jax.scipy.optimize import minimize as jsp_minimize
 
+from mdfs.constants import EPS as _EPS
 from mdfs.types import EnergyFn
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ def steepest_descent(
     n_steps: int = 500,
     learning_rate: float = 2e-5,
     max_step: float = 0.002,
+    eps: float = _EPS,
 ) -> MinimizationResult:
     """Steepest descent with a per-atom displacement cap (``max_step`` nm).
 
@@ -54,7 +56,7 @@ def steepest_descent(
         g = force_fn(R)
         disp = -learning_rate * g
         norms = jnp.linalg.norm(disp, axis=1, keepdims=True)
-        scale = jnp.minimum(1.0, max_step / (norms + 1e-12))
+        scale = jnp.minimum(1.0, max_step / (norms + eps))
         return R + disp * scale
 
     R = R0

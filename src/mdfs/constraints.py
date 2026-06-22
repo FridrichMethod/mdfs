@@ -20,11 +20,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from mdfs.constants import EPS as _EPS
 from mdfs.energy import BondedSet
 
 logger = logging.getLogger(__name__)
-
-_EPS = 1e-12
 
 
 class ConstraintSet(NamedTuple):
@@ -164,10 +163,10 @@ def constrained_dof(cset: ConstraintSet) -> int:
     return 3 * cset.n_atoms - cset.pairs.shape[0]
 
 
-def _unit_bonds(positions: jax.Array, cset: ConstraintSet) -> jax.Array:
+def _unit_bonds(positions: jax.Array, cset: ConstraintSet, eps: float = _EPS) -> jax.Array:
     """Reference unit bond vectors ``u_k`` (K, 3) at ``positions``."""
     d = positions[cset.pairs[:, 0]] - positions[cset.pairs[:, 1]]
-    return d / jnp.sqrt(jnp.sum(d * d, axis=1, keepdims=True) + _EPS * _EPS)
+    return d / jnp.sqrt(jnp.sum(d * d, axis=1, keepdims=True) + eps * eps)
 
 
 def _coupling_matrix(u: jax.Array, cset: ConstraintSet) -> jax.Array:
@@ -195,13 +194,15 @@ def _apply_multipliers(
     return positions.at[a].add(disp_a).at[b].add(disp_b)
 
 
-def apply_position_constraint(r_ref: jax.Array, r_unc: jax.Array, cset: ConstraintSet) -> jax.Array:
+def apply_position_constraint(
+    r_ref: jax.Array, r_unc: jax.Array, cset: ConstraintSet, eps: float = _EPS
+) -> jax.Array:
     """Project unconstrained positions ``r_unc`` onto the constraint manifold.
 
     Directions are taken at the reference (start-of-step) positions ``r_ref``.
     Runs the LINCS length expansion plus one length-correction pass.
     """
-    u = _unit_bonds(r_ref, cset)
+    u = _unit_bonds(r_ref, cset, eps=eps)
     a_mat = _coupling_matrix(u, cset)
     a, b = cset.pairs[:, 0], cset.pairs[:, 1]
 
@@ -214,18 +215,18 @@ def apply_position_constraint(r_ref: jax.Array, r_unc: jax.Array, cset: Constrai
     bond = r[a] - r[b]
     l2 = jnp.sum(bond * bond, axis=1)
     # Floor the radicand (a squared length) just above zero; the solve is not
-    # differentiated, so a bare _EPS rather than _EPS**2 is fine here.
-    p = jnp.sqrt(jnp.maximum(2.0 * cset.lengths**2 - l2, _EPS))
+    # differentiated, so a bare eps rather than eps**2 is fine here.
+    p = jnp.sqrt(jnp.maximum(2.0 * cset.lengths**2 - l2, eps))
     proj2 = jnp.sum(u * bond, axis=1) - p
     lam2 = cset.sdiag * _solve(a_mat, cset.sdiag * proj2, cset.order)
     return _apply_multipliers(r, u, lam2, cset)
 
 
 def apply_velocity_constraint(
-    r_ref: jax.Array, velocities: jax.Array, cset: ConstraintSet
+    r_ref: jax.Array, velocities: jax.Array, cset: ConstraintSet, eps: float = _EPS
 ) -> jax.Array:
     """Project out velocity components along the constraints (RATTLE velocity step)."""
-    u = _unit_bonds(r_ref, cset)
+    u = _unit_bonds(r_ref, cset, eps=eps)
     a_mat = _coupling_matrix(u, cset)
     a, b = cset.pairs[:, 0], cset.pairs[:, 1]
     proj = jnp.sum(u * (velocities[a] - velocities[b]), axis=1)

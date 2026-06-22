@@ -21,11 +21,9 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
+from mdfs.constants import EPS as _EPS
 from mdfs.constants import ONE_4PI_EPS0
 from mdfs.types import DisplacementFn
-
-# Softening floor for vector norms (nm); keeps division and atan2 gradients finite.
-_EPS: float = 1e-12
 
 
 def _safe_norm(
@@ -66,7 +64,7 @@ def angle_energy(
     return 0.5 * jnp.sum(k_theta * (theta - theta0) ** 2)
 
 
-def dihedral_phi(R: jax.Array, dihedrals: jax.Array) -> jax.Array:
+def dihedral_phi(R: jax.Array, dihedrals: jax.Array, eps: float = _EPS) -> jax.Array:
     """Signed dihedral angle phi for each ``(i, j, k, l)`` (Blondel-Karplus form).
 
     Uses unnormalized plane normals (``x`` and ``y`` carry the same scale, so the
@@ -80,11 +78,11 @@ def dihedral_phi(R: jax.Array, dihedrals: jax.Array) -> jax.Array:
     b3 = R[m] - R[k]
     n1 = jnp.cross(b1, b2)
     n2 = jnp.cross(b2, b3)
-    b2_hat = b2 / _safe_norm(b2, axis=1, keepdims=True)
+    b2_hat = b2 / _safe_norm(b2, axis=1, keepdims=True, eps=eps)
     m1 = jnp.cross(n1, b2_hat)
     x = jnp.sum(n1 * n2, axis=1)
     y = jnp.sum(m1 * n2, axis=1)
-    x = x + jnp.where(x * x + y * y < _EPS * _EPS, _EPS, 0.0)  # avoid atan2(0, 0)
+    x = x + jnp.where(x * x + y * y < eps * eps, eps, 0.0)  # avoid atan2(0, 0)
     return jnp.arctan2(y, x)
 
 
@@ -125,22 +123,23 @@ def lj_mixed_eps_sigma(
     return eps_ij, sig_ij
 
 
-def lj_12_6(eps_ij: jax.Array, sig_ij: jax.Array, r: jax.Array) -> jax.Array:
-    """Lennard-Jones 12-6 potential ``4 eps [(sig/r)^12 - (sig/r)^6]``.
+def lj_12_6(eps_ij: jax.Array, sig_ij: jax.Array, r: jax.Array, eps: float = _EPS) -> jax.Array:
+    """Lennard-Jones 12-6 potential ``4 eps_ij [(sig/r)^12 - (sig/r)^6]``.
 
     ``r`` is floored at ``0.1 * sigma`` so ``(sig/r)**12`` cannot overflow to inf
     (which would poison forces as ``inf - inf = nan``) for catastrophic clashes in
     float32. This only caps the repulsion at separations well below any physical
-    contact, keeping minimization from a clashy start finite.
+    contact, keeping minimization from a clashy start finite. ``eps`` is the
+    numerical floor (distinct from the LJ well depth ``eps_ij``).
     """
-    r_safe = jnp.maximum(r, 0.1 * sig_ij + _EPS)
+    r_safe = jnp.maximum(r, 0.1 * sig_ij + eps)
     sr6 = (sig_ij / r_safe) ** 6
     return 4.0 * eps_ij * (sr6 * sr6 - sr6)
 
 
-def coulomb_plain(qiqj: jax.Array, r: jax.Array, k_e: float) -> jax.Array:
+def coulomb_plain(qiqj: jax.Array, r: jax.Array, k_e: float, eps: float = _EPS) -> jax.Array:
     """Unscreened Coulomb energy ``k_e * q_i q_j / r``."""
-    return k_e * qiqj / (r + _EPS)
+    return k_e * qiqj / (r + eps)
 
 
 class DSFParams(NamedTuple):
@@ -156,10 +155,10 @@ class DSFParams(NamedTuple):
 
 
 def coulomb_dsf_pair(
-    qiqj: jax.Array, r: jax.Array, alpha: float, r_cut: float, k_e: float
+    qiqj: jax.Array, r: jax.Array, alpha: float, r_cut: float, k_e: float, eps: float = _EPS
 ) -> jax.Array:
     """Damped Shifted-Force (Fennell-Gezelter) Coulomb for a pair."""
-    inv_r = 1.0 / (r + _EPS)
+    inv_r = 1.0 / (r + eps)
     erfc_ar = jax.scipy.special.erfc(alpha * r)
     erfc_arc = jax.scipy.special.erfc(alpha * r_cut)
     term_c = (
@@ -262,18 +261,20 @@ def _pair_lj_coulomb(
     return e_lj + e_coul
 
 
-def _nonbonded_dense(R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn) -> jax.Array:
+def _nonbonded_dense(
+    R: jax.Array, nb: NonbondedSet, displacement_fn: DisplacementFn, eps: float = _EPS
+) -> jax.Array:
     """Dense ``(N, N)`` LJ + Coulomb via broadcasting (grad reduces, never scatters)."""
     n = R.shape[0]
     d_r = displacement_fn(R[:, None, :], R[None, :, :])  # (N, N, 3)
     # Push the (zero-distance) diagonal to a finite distance so 1/r and (sig/r)^12
     # have finite values *and* gradients; it is masked out below regardless.
-    r = jnp.sqrt(jnp.sum(d_r * d_r, axis=-1) + jnp.eye(n) + _EPS * _EPS)
+    r = jnp.sqrt(jnp.sum(d_r * d_r, axis=-1) + jnp.eye(n) + eps * eps)
 
-    eps = nb.lj_params.eps_type[nb.types]
-    sig = nb.lj_params.sig_type[nb.types]
-    eps_ij = jnp.sqrt(eps[:, None] * eps[None, :])
-    sig_ij = 0.5 * (sig[:, None] + sig[None, :])
+    lj_eps = nb.lj_params.eps_type[nb.types]
+    lj_sig = nb.lj_params.sig_type[nb.types]
+    eps_ij = jnp.sqrt(lj_eps[:, None] * lj_eps[None, :])
+    sig_ij = 0.5 * (lj_sig[:, None] + lj_sig[None, :])
     qiqj = nb.q[:, None] * nb.q[None, :]
 
     e = _pair_lj_coulomb(r, eps_ij, sig_ij, qiqj, nb)
