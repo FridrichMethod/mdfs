@@ -92,7 +92,7 @@ vacuum/periodic, minimization (see [`examples/README.md`](examples/README.md)).
 ## Layout
 
 ```
-src/mdfs/      package (see CLAUDE.md for a module-by-module map)
+src/mdfs/      package (see AGENTS.md for a module-by-module map)
 assets/        poly_A.pdb test system
 notebooks/     end-to-end demo
 tests/         mirrors src/ (+ regressions/ for the poly_A e2e)

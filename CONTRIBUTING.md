@@ -27,6 +27,6 @@ make venv          # creates .venv (Python 3.12) and installs everything
 
 ## Conventions
 
-See [CLAUDE.md](CLAUDE.md) for the full list (absolute imports, `pathlib`,
+See [AGENTS.md](AGENTS.md) for the full list (absolute imports, `pathlib`,
 `logging` over `print`, Google docstrings, type hints, immutable aggregates,
 parameters sourced from OpenMM's resolved `System`).
