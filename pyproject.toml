@@ -40,7 +40,11 @@ dev = [
   "pytest-cov",
   "pytest-env",
   "pytest-xdist",
-  "ruff",
+  # Pin ruff to the ruff-pre-commit hook version (v0.15.5) so CI lints with the
+  # same rules as `pre-commit run`. With `preview = true`, an unpinned ruff
+  # picks up new preview rules (for example noqa-comments in 0.16) and turns
+  # CI red while the pinned local hook passes.
+  "ruff==0.15.5",
 ]
 mypy = ["mypy"]
 cuda12 = ["jax[cuda12]"]
